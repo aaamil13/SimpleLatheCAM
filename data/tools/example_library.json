@@ -1,0 +1,87 @@
+{
+  "tools": [
+    {
+      "tool_id": 1,
+      "description": "Roughing — external right-hand",
+      "insert": {
+        "shape": "C", "clearance": "N", "nose_radius": 0.8,
+        "ic_size": 12.7, "thickness": 4.76,
+        "manufacturer": "Sandvik", "iso_code": "CNMG 120408-PM"
+      },
+      "holder": {
+        "approach_angle": 95.0, "hand": "R", "direction": "external",
+        "shank_w": 25.0, "shank_h": 25.0,
+        "manufacturer": "Sandvik", "iso_code": "PCLNR 2525M12"
+      },
+      "cutting_data": {
+        "steel_45": {
+          "vc_rec": 220, "vc_max": 300,
+          "fn_rec": 0.25, "fn_max": 0.45,
+          "ap_rec": 2.0,  "ap_max": 5.0
+        },
+        "aluminium_6061": {
+          "vc_rec": 500, "vc_max": 800,
+          "fn_rec": 0.20, "fn_max": 0.50,
+          "ap_rec": 2.5,  "ap_max": 6.0
+        },
+        "brass": {
+          "vc_rec": 250, "vc_max": 400,
+          "fn_rec": 0.20, "fn_max": 0.40,
+          "ap_rec": 2.0,  "ap_max": 4.0
+        }
+      }
+    },
+    {
+      "tool_id": 3,
+      "description": "Finishing — external right-hand",
+      "insert": {
+        "shape": "D", "clearance": "N", "nose_radius": 0.4,
+        "ic_size": 12.7, "thickness": 4.76,
+        "manufacturer": "Mitsubishi", "iso_code": "DNMG 110404-MA"
+      },
+      "holder": {
+        "approach_angle": 93.0, "hand": "R", "direction": "external",
+        "shank_w": 20.0, "shank_h": 20.0,
+        "manufacturer": "Mitsubishi", "iso_code": "PDJNR 2020K11"
+      },
+      "cutting_data": {
+        "steel_45": {
+          "vc_rec": 280, "vc_max": 380,
+          "fn_rec": 0.10, "fn_max": 0.20,
+          "ap_rec": 0.5,  "ap_max": 1.5
+        },
+        "aluminium_6061": {
+          "vc_rec": 600, "vc_max": 1000,
+          "fn_rec": 0.10, "fn_max": 0.25,
+          "ap_rec": 0.3,  "ap_max": 1.0
+        }
+      }
+    },
+    {
+      "tool_id": 5,
+      "description": "Parting / grooving — 3mm blade",
+      "insert": {
+        "shape": "S", "clearance": "N", "nose_radius": 0.2,
+        "ic_size": 3.0, "thickness": 3.0,
+        "manufacturer": "Walter", "iso_code": "P28-3NB-M WPP10"
+      },
+      "holder": {
+        "approach_angle": 90.0, "hand": "N", "direction": "external",
+        "shank_w": 25.0, "shank_h": 25.0,
+        "manufacturer": "Walter", "iso_code": "G1011.2525L-3T21GX"
+      },
+      "cutting_data": {
+        "steel_45": {
+          "vc_rec": 140, "vc_max": 200,
+          "fn_rec": 0.06, "fn_max": 0.12,
+          "ap_rec": 3.0,  "ap_max": 3.0
+        },
+        "aluminium_6061": {
+          "vc_rec": 300, "vc_max": 500,
+          "fn_rec": 0.08, "fn_max": 0.15,
+          "ap_rec": 3.0,  "ap_max": 3.0
+        }
+      }
+    }
+  ]
+}

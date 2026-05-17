@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python tests/test_machine.py)",
+      "Bash(python tests/test_tool.py)"
+    ]
+  }
+}

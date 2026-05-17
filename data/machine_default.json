@@ -1,0 +1,32 @@
+{
+  "name": "My Lathe",
+  "description": "Hobby/small-shop lathe — edit values to match your machine",
+  "spindle": {
+    "max_rpm": 2500,
+    "min_rpm": 60
+  },
+  "axes": {
+    "limits": {
+      "x_min": 0.0,
+      "x_max": 125.0,
+      "z_min": -350.0,
+      "z_max": 5.0
+    },
+    "x_rapid_mmpm": 0.0,
+    "z_rapid_mmpm": 0.0
+  },
+  "safe_positions": {
+    "x_clearance": 5.0,
+    "x_tool_change": 100.0,
+    "z_tool_change": 50.0,
+    "x_home": 100.0,
+    "z_home": 50.0,
+    "z_approach_clearance": 2.0
+  },
+  "workholding": {
+    "chuck_diameter": 160.0,
+    "chuck_jaw_depth": 35.0,
+    "bar_capacity": 38.0
+  },
+  "coolant_available": false
+}
