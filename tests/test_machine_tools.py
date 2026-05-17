@@ -189,13 +189,22 @@ def test_optimizer_groups_compatible():
 
 
 def test_optimizer_forces_change_for_finish():
-    """Roughing tool (R=0.8) cannot do finishing (max R=0.4) → 2 groups."""
+    """
+    Roughing op requires min_nose_radius=0.6 (high chip load).
+    T1 (R=0.8) qualifies for roughing but not finishing (R > 0.4 max).
+    T3 (R=0.4) qualifies for finishing but NOT roughing (R < 0.6 min).
+    → optimizer must use T1 for rough, T3 for finish = 2 groups, 1 change.
+    """
     tools = [
         make_tool(1, ToolDirection.EXTERNAL, 0.8),
         make_tool(3, ToolDirection.EXTERNAL, 0.4),
     ]
+    rough = OpRequirement(
+        "cylinder", ToolDirection.EXTERNAL,
+        is_roughing=True, min_nose_radius=0.6, max_nose_radius=9999,
+    )
     opt = ToolOptimizer(tools)
-    result = opt.optimize([ext_rough(), ext_finish()])
+    result = opt.optimize([rough, ext_finish()])
     assert len(result.groups) == 2
     assert result.tool_changes == 1
     assert result.groups[0].tool_id == 1

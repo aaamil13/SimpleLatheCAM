@@ -35,6 +35,15 @@
   - Validates against `MachineConfig` axis limits
   - Generates `G00 X{d/2} Z{z}` (no geometry added to profile)
   - Use case: explicit safe-position move between tool sequences
+- [x] `domain/machine_tools.py` — `InstalledTool`, `MachineToolConfig`
+  - installed tools (turret positions, ATC or manual)
+  - available tools (shop inventory linked to ToolLibrary)
+  - missing_from_available / missing_from_installed helpers
+- [x] `domain/tool_optimizer.py` — `ToolOptimizer`, `OpRequirement`, `can_tool_do`
+  - greedy look-ahead: assigns available tools to operations
+  - minimises tool changes (groups consecutive compatible operations)
+  - respects user's explicit preferred_tool_id
+  - warns when no available tool covers an operation
 
 ### 1.3  Tool model
 - [x] `domain/tool.py`
