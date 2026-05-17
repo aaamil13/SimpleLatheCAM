@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Optional
 
 from domain.tool import SpindleMode, ToolDirection
 
@@ -58,6 +59,7 @@ class OperationRecord:
     params:         dict[str, float]    = field(default_factory=dict)
     direction:      ToolDirection       = ToolDirection.EXTERNAL
     enabled:        bool                = True
+    coolant_on:     Optional[bool]      = None  # None = inherit from ToolSequence
 
 
 # ---------------------------------------------------------------------------
@@ -97,6 +99,22 @@ class ToolSequence:
     @property
     def enabled_operations(self) -> list[OperationRecord]:
         return [op for op in self.operations if op.enabled]
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def _op_to_dict(op: "OperationRecord") -> dict:
+    d: dict = {
+        "primitive": op.primitive_name,
+        "params":    op.params,
+        "direction": op.direction.value,
+        "enabled":   op.enabled,
+    }
+    if op.coolant_on is not None:
+        d["coolant_on"] = op.coolant_on
+    return d
 
 
 # ---------------------------------------------------------------------------
@@ -201,12 +219,7 @@ class PartRecipe:
                     "max_rpm":       seq.max_rpm,
                     "coolant_on":    seq.coolant_on,
                     "operations": [
-                        {
-                            "primitive": op.primitive_name,
-                            "params":    op.params,
-                            "direction": op.direction.value,
-                            "enabled":   op.enabled,
-                        }
+                        _op_to_dict(op)
                         for op in seq.operations
                     ],
                 }
@@ -230,6 +243,7 @@ class PartRecipe:
                     params=od.get("params", {}),
                     direction=ToolDirection(od.get("direction", "external")),
                     enabled=od.get("enabled", True),
+                    coolant_on=od.get("coolant_on", None),
                 )
                 for od in sd.get("operations", [])
             ]

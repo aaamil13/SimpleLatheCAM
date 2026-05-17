@@ -146,6 +146,44 @@ class EditorModel(QObject):
         op.params = dict(params)
         self._mutated(self._sel_seq, self._sel_op)
 
+    def update_coolant_override(self, coolant_on: Optional[bool]) -> None:
+        op = self.selected_operation()
+        if op is None:
+            return
+        op.coolant_on = coolant_on
+        self._mutated(self._sel_seq, self._sel_op)
+
+    def insert_operation_before(self, primitive_name: str) -> None:
+        """Insert a new operation before the currently selected one."""
+        self._insert_at(primitive_name, offset=0)
+
+    def insert_operation_after(self, primitive_name: str) -> None:
+        """Insert a new operation after the currently selected one."""
+        self._insert_at(primitive_name, offset=1)
+
+    def _insert_at(self, primitive_name: str, offset: int) -> None:
+        plugin = self._loader.get(primitive_name)
+        if plugin is None:
+            self.error_occurred.emit(f"Unknown primitive: {primitive_name}")
+            return
+        op = OperationRecord(
+            primitive_name=primitive_name,
+            params=plugin.default_params(),
+        )
+        if not self._recipe.tool_sequences:
+            self._recipe.tool_sequences.append(ToolSequence(tool_id=1))
+        seq_idx = max(self._sel_seq, 0)
+        if seq_idx >= len(self._recipe.tool_sequences):
+            seq_idx = len(self._recipe.tool_sequences) - 1
+        seq = self._recipe.tool_sequences[seq_idx]
+        if not seq.operations or self._sel_op < 0:
+            seq.operations.append(op)
+            self._mutated(seq_idx, len(seq.operations) - 1)
+        else:
+            insert_at = self._sel_op + offset
+            seq.operations.insert(insert_at, op)
+            self._mutated(seq_idx, insert_at)
+
     def remove_selected(self) -> None:
         op = self.selected_operation()
         if op is None:

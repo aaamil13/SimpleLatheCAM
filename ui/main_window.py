@@ -85,7 +85,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self._canvas)
 
         # Right — steps panel (accordion)
-        self._steps = StepsPanel(self._model, self)
+        self._steps = StepsPanel(self._model, self._machine, self)
         self._steps.setMinimumWidth(220)
         self._steps.setMaximumWidth(340)
         splitter.addWidget(self._steps)
@@ -131,7 +131,13 @@ class MainWindow(QMainWindow):
         self._model.selection_changed.connect(self._on_selection_changed)
         self._model.error_occurred.connect(self._show_error)
 
-        self._sidebar.primitive_chosen.connect(self._on_primitive_chosen)
+        self._sidebar.primitive_add.connect(self._on_primitive_chosen)
+        self._sidebar.primitive_insert_before.connect(
+            self._model.insert_operation_before
+        )
+        self._sidebar.primitive_insert_after.connect(
+            self._model.insert_operation_after
+        )
 
         self._toolbar.action_new.connect(self._new_recipe)
         self._toolbar.action_open.connect(self._open_recipe)
@@ -146,7 +152,6 @@ class MainWindow(QMainWindow):
 
     def _on_primitive_chosen(self, name: str) -> None:
         self._model.add_operation(name)
-        self._sidebar.show_operations()
 
     def _on_recipe_changed(self) -> None:
         self._canvas.set_profile(self._model.profile)

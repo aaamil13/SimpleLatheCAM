@@ -1,12 +1,19 @@
 """
-LeftSidebar — QTabWidget housing the primitives grid and operations tree.
+LeftSidebar — QTabWidget with one tab per operation category.
 
-Tab 0: "Примитиви" — PrimitiveGrid (scrollable icon browser by category)
-Tab 1: "Операции"  — OperationTree (full recipe hierarchy with context menu)
+Tabs (in order):
+  0: Подготовка  → Setup + Machine
+  1: Пробиване   → Drilling
+  2: Външни      → External + Turning
+  3: Вътрешни    → Internal
+
+Each tab is a PrimitiveGrid filtered to its category group.
 
 Signals
 -------
-  primitive_chosen(str) — forwarded from PrimitiveGrid when a button is clicked
+  primitive_add(str)
+  primitive_insert_before(str)
+  primitive_insert_after(str)
 """
 
 from __future__ import annotations
@@ -15,12 +22,20 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import QTabWidget
 
 from ui.editor_model import EditorModel
-from ui.operation_tree import OperationTree
 from ui.primitive_grid import PrimitiveGrid
+
+_TABS: list[tuple[str, list[str]]] = [
+    ("Подготовка", ["Setup", "Machine"]),
+    ("Пробиване",  ["Drilling"]),
+    ("Външни",     ["External", "Turning"]),
+    ("Вътрешни",   ["Internal"]),
+]
 
 
 class LeftSidebar(QTabWidget):
-    primitive_chosen = Signal(str)
+    primitive_add           = Signal(str)
+    primitive_insert_before = Signal(str)
+    primitive_insert_after  = Signal(str)
 
     def __init__(self, model: EditorModel, parent=None) -> None:
         super().__init__(parent)
@@ -28,12 +43,17 @@ class LeftSidebar(QTabWidget):
         self.setMinimumWidth(200)
         self.setMaximumWidth(320)
 
-        self._primitives = PrimitiveGrid(model.loader, self)
-        self._primitives.primitive_chosen.connect(self.primitive_chosen)
-        self.addTab(self._primitives, "Примитиви")
-
-        self._tree = OperationTree(model, self)
-        self.addTab(self._tree, "Операции")
+        for label, cats in _TABS:
+            grid = PrimitiveGrid(
+                loader=model.loader,
+                model=model,
+                categories=cats,
+                parent=self,
+            )
+            grid.primitive_add.connect(self.primitive_add)
+            grid.primitive_insert_before.connect(self.primitive_insert_before)
+            grid.primitive_insert_after.connect(self.primitive_insert_after)
+            self.addTab(grid, label)
 
         self.setStyleSheet("""
             QTabWidget::pane {
@@ -43,9 +63,10 @@ class LeftSidebar(QTabWidget):
             QTabBar::tab {
                 background: #263238;
                 color: #90A4AE;
-                padding: 6px 14px;
+                padding: 5px 10px;
                 border: none;
                 border-right: 1px solid #1E272E;
+                font-size: 11px;
             }
             QTabBar::tab:selected {
                 background: #37474F;
@@ -56,14 +77,3 @@ class LeftSidebar(QTabWidget):
                 background: #2E3C43;
             }
         """)
-
-    # ------------------------------------------------------------------
-    # Convenience accessors
-
-    @property
-    def operation_tree(self) -> OperationTree:
-        return self._tree
-
-    def show_operations(self) -> None:
-        """Switch to the Operations tab (called after adding an operation)."""
-        self.setCurrentIndex(1)
