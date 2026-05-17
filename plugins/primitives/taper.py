@@ -31,7 +31,7 @@ class TaperPrimitive(LathePrimitive):
 
     @property
     def category(self) -> str:
-        return "Turning"
+        return "External"
 
     @property
     def tooltip(self) -> str:

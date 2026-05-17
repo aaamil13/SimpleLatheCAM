@@ -163,6 +163,23 @@ class PartRecipe:
         data = json.loads(Path(path).read_text(encoding="utf-8"))
         return cls._from_dict(data)
 
+    @classmethod
+    def default(cls, stock_d: float = 50.0, stock_l: float = 150.0) -> "PartRecipe":
+        """Empty recipe with one default ToolSequence — ready for first operation."""
+        return cls(
+            part_name="New Part",
+            stock=StockSpec(diameter=stock_d, length=stock_l),
+            tool_sequences=[
+                ToolSequence(
+                    tool_id=1,
+                    spindle_mode=SpindleMode.CSS,
+                    spindle_value=200.0,
+                    max_rpm=2500,
+                    coolant_on=True,
+                )
+            ],
+        )
+
     # ------------------------------------------------------------------
     # Dict helpers (also used by the UI for copy/paste)
     # ------------------------------------------------------------------

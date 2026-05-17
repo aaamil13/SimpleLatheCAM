@@ -76,7 +76,10 @@
 - [x] `plugins/primitives/fillet.py` — concave/convex radius between two steps
 - [x] `plugins/primitives/face_turn.py` — face the end of the part
 - [x] `plugins/primitives/groove.py` — rectangular or V groove (external/internal)
-- [x] `plugins/primitives/parting.py` — cut-off with chip breaking
+- [x] `plugins/primitives/parting.py` — cut-off with chip breaking (External)
+- [x] `plugins/primitives/turn_stock.py` — stock cleanup pass (Setup)
+- [x] `plugins/primitives/drill.py` — G83 peck drill, tailstock/turret (Drilling)
+- [x] `plugins/primitives/bore.py` — boring bar, enlarge existing bore (Internal)
   - **Chip break modes** (ParamSpec `chip_break_mode` as enum choice):
     - `none` — continuous feed to full depth
     - `peck` — feed `peck_depth` mm, retract `retract_amount` mm, repeat
@@ -124,8 +127,10 @@
 
 ## Phase 4 — User Interface (PySide6 standalone)
 
+- [x] `ui/editor_model.py` — `EditorModel(QObject)` — central state and signals
+
 ### 4.1  2D Canvas
-- [ ] `ui/canvas_2d.py` — `LatheCanvas(QWidget)`
+- [x] `ui/canvas_2d.py` — `LatheCanvas(QWidget)`
   - Draw stock outline (dashed)
   - Draw part profile (solid, coloured by tool)
   - Draw roughing passes (thin grey lines)
@@ -136,14 +141,14 @@
   - Zoom + pan (mouse wheel + drag)
 
 ### 4.2  Operation tree
-- [ ] `ui/operation_tree.py` — `OperationTree(QTreeWidget)`
+- [x] `ui/operation_tree.py` — `OperationTree(QTreeWidget)`
   - Top-level nodes: ToolSequence (shows T id + type)
   - Children: OperationRecord (primitive icon + summary line)
   - Drag-drop reordering within a sequence
   - Right-click: delete, duplicate, move to other tool
 
 ### 4.3  Parameters panel
-- [ ] `ui/params_panel.py` — `ParamsPanel(QWidget)`
+- [x] `ui/params_panel.py` — `ParamsPanel(QWidget)`
   - Auto-generated from `LathePrimitive.params_schema`
   - `QDoubleSpinBox` per param with unit label
   - Inline error display from `validate()`
@@ -158,13 +163,14 @@
   - Import from JSON / export to JSON
 
 ### 4.5  Primitive picker toolbar
-- [ ] `ui/primitive_toolbar.py`
+- [x] `ui/primitive_toolbar.py`
   - One button per loaded plug-in (icon from `draw_icon()`)
   - Grouped by `LathePrimitive.category`
   - Click → appends new operation with default params to active ToolSequence
 
 ### 4.6  Main window
-- [ ] `ui/main_window.py` — `MainWindow(QMainWindow)`
+- [x] `ui/main_window.py`
+- [x] `main.py` — application entry point — `MainWindow(QMainWindow)`
   - Layout: toolbar top, operation tree left, canvas centre, params panel right
   - Menu: File (new/open/save recipe, export G-code), View (2D/3D toggle), Machine (send to LinuxCNC)
   - Status bar: cursor X/Z, current tool, last error

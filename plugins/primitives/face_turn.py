@@ -34,7 +34,7 @@ class FaceTurnPrimitive(LathePrimitive):
 
     @property
     def category(self) -> str:
-        return "Turning"
+        return "Setup"
 
     @property
     def tooltip(self) -> str:

@@ -34,7 +34,7 @@ class FilletPrimitive(LathePrimitive):
 
     @property
     def category(self) -> str:
-        return "Turning"
+        return "External"
 
     @property
     def min_segments(self) -> int:
