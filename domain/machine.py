@@ -19,7 +19,21 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass, field, asdict
+from enum import Enum
 from pathlib import Path
+
+
+class ChuckSide(str, Enum):
+    """Which side of the bed the spindle/chuck is mounted on.
+
+    LEFT  — standard configuration: chuck on the operator's left,
+            tailstock on the right.  Z decreases left-to-right.
+    RIGHT — reversed spindle (e.g. sub-spindle or inverted lathe):
+            chuck on the right, tailstock on the left.
+            The canvas mirrors the Z axis for correct visualisation.
+    """
+    LEFT  = "left"
+    RIGHT = "right"
 
 
 # ---------------------------------------------------------------------------
@@ -133,9 +147,10 @@ class MachineConfig:
     # ------------------------------------------------------------------
     # Workholding geometry
     # ------------------------------------------------------------------
-    chuck_diameter: float = 200.0   # mm — used for collision preview
-    chuck_jaw_depth: float = 40.0   # mm — axial depth of the chuck jaws
-    bar_capacity: float = 52.0      # mm diameter — through-bar bore
+    chuck_side: ChuckSide = ChuckSide.LEFT   # spindle position on the bed
+    chuck_diameter: float = 200.0            # mm — used for collision preview
+    chuck_jaw_depth: float = 40.0            # mm — axial depth of the chuck jaws
+    bar_capacity: float = 52.0               # mm diameter — through-bar bore
 
     # ------------------------------------------------------------------
     # Extras
@@ -182,6 +197,7 @@ class MachineConfig:
             },
             "safe_positions": asdict(self.safe),
             "workholding": {
+                "chuck_side": self.chuck_side.value,
                 "chuck_diameter": self.chuck_diameter,
                 "chuck_jaw_depth": self.chuck_jaw_depth,
                 "bar_capacity": self.bar_capacity,
@@ -209,6 +225,7 @@ class MachineConfig:
             safe=SafePositions(**safe),
             x_rapid_mmpm=axes.get("x_rapid_mmpm", 0.0),
             z_rapid_mmpm=axes.get("z_rapid_mmpm", 0.0),
+            chuck_side=ChuckSide(wh.get("chuck_side", "left")),
             chuck_diameter=wh.get("chuck_diameter", 200.0),
             chuck_jaw_depth=wh.get("chuck_jaw_depth", 40.0),
             bar_capacity=wh.get("bar_capacity", 52.0),

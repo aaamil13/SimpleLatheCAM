@@ -31,7 +31,7 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import QWidget
 
-from domain.machine import MachineConfig
+from domain.machine import ChuckSide, MachineConfig
 from domain.profile import LatheProfile
 from domain.profile_segments import ArcSegment, LineSegment
 
@@ -79,10 +79,17 @@ class LatheCanvas(QWidget):
     # Coordinate helpers
     # ------------------------------------------------------------------
 
+    @property
+    def _z_sign(self) -> float:
+        """+1 for left chuck (face on right edge), -1 for right chuck (face on left)."""
+        if self._machine and self._machine.chuck_side == ChuckSide.RIGHT:
+            return 1.0
+        return -1.0   # default: left chuck, Z=0 on right, negative Z to the left
+
     def _w2s(self, r: float, z: float) -> QPointF:
         """World (r, z) → screen (px, py)."""
         return QPointF(
-            self._offset_x + (-z) * self._scale,
+            self._offset_x + self._z_sign * (-z) * self._scale,
             self._offset_y - r * self._scale,
         )
 
@@ -96,8 +103,13 @@ class LatheCanvas(QWidget):
         h       = max(self.height() - 2 * margin, 1)
         scale_z = w / max(stock_l, 1)
         scale_r = h / max(stock_r * 2.2, 1)
-        self._scale    = max(min(scale_z, scale_r), 0.1)
-        self._offset_x = self.width()  - margin - stock_l * self._scale
+        self._scale = max(min(scale_z, scale_r), 0.1)
+        if self._z_sign > 0:
+            # right chuck: face (Z=0) on the left, chuck on the right
+            self._offset_x = margin
+        else:
+            # left chuck: face (Z=0) on the right
+            self._offset_x = self.width() - margin - stock_l * self._scale
         self._offset_y = self.height() / 2.0 + stock_r * self._scale * 0.5
         self._fit_pending = False
 
@@ -107,24 +119,27 @@ class LatheCanvas(QWidget):
 
     def paintEvent(self, _) -> None:
         p = QPainter(self)
-        p.setRenderHint(QPainter.RenderHint.Antialiasing)
-        p.fillRect(self.rect(), QColor("#1E272E"))
+        try:
+            p.setRenderHint(QPainter.RenderHint.Antialiasing)
+            p.fillRect(self.rect(), QColor("#1E272E"))
 
-        if self._profile is None:
-            p.setPen(QColor("#546E7A"))
-            p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
-                       "Няма профил")
-            return
+            if self._profile is None:
+                p.setPen(QColor("#546E7A"))
+                p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
+                           "Няма профил")
+                return
 
-        if self._fit_pending:
-            self._fit()
+            if self._fit_pending:
+                self._fit()
 
-        self._draw_axis(p)
-        self._draw_stock(p)
-        if self._machine:
-            self._draw_limits(p)
-        self._draw_profile(p)
-        self._draw_cursor(p)
+            self._draw_axis(p)
+            self._draw_stock(p)
+            if self._machine:
+                self._draw_limits(p)
+            self._draw_profile(p)
+            self._draw_cursor(p)
+        finally:
+            p.end()
 
     def _draw_axis(self, p: QPainter) -> None:
         pen = QPen(_AXIS_COLOR, 1, Qt.PenStyle.DashLine)
@@ -191,7 +206,7 @@ class LatheCanvas(QWidget):
     def _draw_limits(self, p: QPainter) -> None:
         if self._machine is None:
             return
-        lim = self._machine.axis_limits
+        lim = self._machine.limits
         pen = QPen(_LIMIT_COLOR, 1, Qt.PenStyle.DotLine)
         p.setPen(pen)
         # X max (radial limit)

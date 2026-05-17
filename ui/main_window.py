@@ -3,17 +3,14 @@ MainWindow — top-level PySide6 window for the LatheCadCam editor.
 
 Layout
 ------
-  [PrimitiveToolbar — top]
-  ┌─────────────────────────────────────────────┐
-  │ OperationTree (left) │ LatheCanvas (centre) │ ParamsPanel (right) │
-  └─────────────────────────────────────────────┘
+  [ActionToolbar — top]
+  ┌────────────────────────────────────────────────────┐
+  │ LeftSidebar (left) │ LatheCanvas (centre) │ StepsPanel (right) │
+  └────────────────────────────────────────────────────┘
   [StatusBar — bottom]
 
-Menus
------
-  File : New, Open, Save, Save As, ── , Export G-code, ── , Quit
-  View : Fit View
-  Help : About
+LeftSidebar tabs: Примитиви (icon grid) · Операции (tree)
+StepsPanel: accordion step cards with per-operation edit dialogs
 """
 
 from __future__ import annotations
@@ -33,16 +30,15 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from cam.gcode_writer import GCodeWriter, WriterConfig
+from cam.gcode_writer import GCodeWriter
 from domain.machine import MachineConfig
 from domain.plugin_loader import PrimitivePluginLoader
-from domain.recipe import PartRecipe
 from domain.tool_library import ToolLibrary
+from ui.action_toolbar import ActionToolbar
 from ui.canvas_2d import LatheCanvas
 from ui.editor_model import EditorModel
-from ui.operation_tree import OperationTree
-from ui.params_panel import ParamsPanel
-from ui.primitive_toolbar import PrimitiveToolbar
+from ui.left_sidebar import LeftSidebar
+from ui.steps_panel import StepsPanel
 
 
 class MainWindow(QMainWindow):
@@ -50,17 +46,17 @@ class MainWindow(QMainWindow):
     def __init__(
         self,
         loader:       PrimitivePluginLoader,
-        tool_library: Optional[ToolLibrary] = None,
+        tool_library: Optional[ToolLibrary]  = None,
         machine:      Optional[MachineConfig] = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self._machine = machine
-        self._model   = EditorModel(loader, tool_library, parent=self)
+        self._machine     = machine
+        self._model       = EditorModel(loader, tool_library, parent=self)
         self._recipe_path: Optional[Path] = None
 
         self.setWindowTitle("LatheCadCam")
-        self.resize(1280, 720)
+        self.resize(1400, 800)
         self._build_ui()
         self._build_menus()
         self._connect_signals()
@@ -70,35 +66,34 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def _build_ui(self) -> None:
-        # Toolbar
-        self._toolbar = PrimitiveToolbar(self._model.loader, self)
+        # Top toolbar
+        self._toolbar = ActionToolbar(self)
         self.addToolBar(Qt.ToolBarArea.TopToolBarArea, self._toolbar)
 
-        # Central splitter
+        # Central splitter: left | canvas | right
         splitter = QSplitter(Qt.Orientation.Horizontal, self)
         self.setCentralWidget(splitter)
 
-        # Left — operation tree
-        self._tree = OperationTree(self._model, self)
-        self._tree.setMinimumWidth(220)
-        self._tree.setMaximumWidth(320)
-        splitter.addWidget(self._tree)
+        # Left sidebar (tabs: primitives + operations)
+        self._sidebar = LeftSidebar(self._model, self)
+        splitter.addWidget(self._sidebar)
 
-        # Centre — canvas
+        # Centre — 2D canvas
         self._canvas = LatheCanvas(self)
         if self._machine:
             self._canvas.set_machine(self._machine)
         splitter.addWidget(self._canvas)
 
-        # Right — params panel
-        self._params = ParamsPanel(self)
-        self._params.setMinimumWidth(200)
-        self._params.setMaximumWidth(280)
-        splitter.addWidget(self._params)
+        # Right — steps panel (accordion)
+        self._steps = StepsPanel(self._model, self)
+        self._steps.setMinimumWidth(220)
+        self._steps.setMaximumWidth(340)
+        splitter.addWidget(self._steps)
 
         splitter.setStretchFactor(0, 0)
         splitter.setStretchFactor(1, 1)
         splitter.setStretchFactor(2, 0)
+        splitter.setSizes([260, 860, 280])
 
         # Status bar
         self._status_cursor = QLabel("X: –   Z: –")
@@ -115,22 +110,19 @@ class MainWindow(QMainWindow):
     def _build_menus(self) -> None:
         mb = self.menuBar()
 
-        # File
         fm = mb.addMenu("&Файл")
-        fm.addAction("&Ново",        self._new_recipe,    "Ctrl+N")
-        fm.addAction("&Отвори…",     self._open_recipe,   "Ctrl+O")
-        fm.addAction("&Запази",      self._save_recipe,   "Ctrl+S")
-        fm.addAction("Запази &като…",self._save_recipe_as,"Ctrl+Shift+S")
+        fm.addAction("&Ново",         self._new_recipe,     "Ctrl+N")
+        fm.addAction("&Отвори…",      self._open_recipe,    "Ctrl+O")
+        fm.addAction("&Запази",       self._save_recipe,    "Ctrl+S")
+        fm.addAction("Запази &като…", self._save_recipe_as, "Ctrl+Shift+S")
         fm.addSeparator()
         fm.addAction("&Експорт G-код…", self._export_gcode, "Ctrl+E")
         fm.addSeparator()
         fm.addAction("&Изход", QApplication.quit, "Ctrl+Q")
 
-        # View
         vm = mb.addMenu("&Изглед")
-        vm.addAction("&Вмести изглед", self._canvas._fit, "Ctrl+0")
+        vm.addAction("&Вмести изглед", self._fit_canvas, "Ctrl+0")
 
-        # Help
         hm = mb.addMenu("&Помощ")
         hm.addAction("&За програмата", self._about)
 
@@ -138,12 +130,23 @@ class MainWindow(QMainWindow):
         self._model.recipe_changed.connect(self._on_recipe_changed)
         self._model.selection_changed.connect(self._on_selection_changed)
         self._model.error_occurred.connect(self._show_error)
-        self._toolbar.primitive_chosen.connect(self._model.add_operation)
-        self._params.params_changed.connect(self._model.update_params)
+
+        self._sidebar.primitive_chosen.connect(self._on_primitive_chosen)
+
+        self._toolbar.action_new.connect(self._new_recipe)
+        self._toolbar.action_open.connect(self._open_recipe)
+        self._toolbar.action_save.connect(self._save_recipe)
+        self._toolbar.action_save_as.connect(self._save_recipe_as)
+        self._toolbar.action_export.connect(self._export_gcode)
+        self._toolbar.action_fit.connect(self._fit_canvas)
 
     # ------------------------------------------------------------------
     # Slots
     # ------------------------------------------------------------------
+
+    def _on_primitive_chosen(self, name: str) -> None:
+        self._model.add_operation(name)
+        self._sidebar.show_operations()
 
     def _on_recipe_changed(self) -> None:
         self._canvas.set_profile(self._model.profile)
@@ -151,22 +154,20 @@ class MainWindow(QMainWindow):
         self._status_cursor.setText(
             f"X: {profile.cursor_x:.2f} mm   Z: {profile.cursor_z:.2f} mm"
         )
-        seq_ops = self._model.recipe.tool_sequences
-        if seq_ops:
-            t = seq_ops[max(self._model.selected_seq, 0)].tool_id
+        seqs = self._model.recipe.tool_sequences
+        if seqs:
+            t = seqs[max(self._model.selected_seq, 0)].tool_id
             self._status_tool.setText(f"T{t:02d}")
 
     def _on_selection_changed(self, seq_idx: int, op_idx: int) -> None:
-        op = self._model.selected_operation()
-        if op is None:
-            self._params.set_primitive(None)
-            return
-        plugin = self._model.loader.get(op.primitive_name)
-        ctx    = self._model.profile.context()
-        self._params.set_primitive(plugin, op.params, ctx)
+        pass  # StepsPanel listens to model.selection_changed directly
 
     def _show_error(self, msg: str) -> None:
         self._status_err.setText(msg)
+
+    def _fit_canvas(self) -> None:
+        self._canvas._fit_pending = True
+        self._canvas.update()
 
     # ------------------------------------------------------------------
     # File actions
@@ -175,7 +176,7 @@ class MainWindow(QMainWindow):
     def _new_recipe(self) -> None:
         self._model.new_recipe()
         self._recipe_path = None
-        self.setWindowTitle("LatheCadCam — New Part")
+        self.setWindowTitle("LatheCadCam — Нова деталь")
 
     def _open_recipe(self) -> None:
         path, _ = QFileDialog.getOpenFileName(

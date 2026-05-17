@@ -170,7 +170,7 @@ class EditorModel(QObject):
         stock = self._recipe.stock
         profile = LatheProfile(stock_d=stock.diameter, stock_l=stock.length)
         for seq in self._recipe.tool_sequences:
-            for op in seq.enabled_operations():
+            for op in seq.enabled_operations:
                 plugin = self._loader.get(op.primitive_name)
                 if plugin is None:
                     continue

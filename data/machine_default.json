@@ -24,6 +24,7 @@
     "z_approach_clearance": 2.0
   },
   "workholding": {
+    "chuck_side": "left",
     "chuck_diameter": 160.0,
     "chuck_jaw_depth": 35.0,
     "bar_capacity": 38.0
