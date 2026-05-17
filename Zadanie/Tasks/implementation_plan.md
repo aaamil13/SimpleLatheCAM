@@ -83,13 +83,16 @@
     - `full_retract` — feed `peck_depth` mm, retract to safe Z, re-enter, repeat
   - Params: `x_target` (final diameter, 0 = full cut-off), `peck_depth`, `retract_amount`, `safe_x`
   - Validation: warn if `peck_depth` > blade_width (tool data)
-
+### ToDo
+- Cone  internal/external, Left/right
+- Threading internal/external Metric/Imperial/Custom Left/Right Thread
+- Cone threading
 ---
 
 ## Phase 3 — CAM Engine
 
 ### 3.1  Roughing
-- [ ] `cam/roughing.py`
+- [x] `cam/roughing.py`
   - `RoughingPass` dataclass: list of (x, z) move tuples + feed_rate
   - `ExternalRougher`: pyclipper offset + horizontal slicing
   - `InternalRougher`: same but inverted polygon direction
@@ -97,14 +100,14 @@
   - Output: list of `RoughingPass`
 
 ### 3.2  Finishing
-- [ ] `cam/finishing.py`
+- [x] `cam/finishing.py`
   - Walk `profile.to_gcode_segments()`
   - Output: G1 for lines, G2/G3 for arcs (with IJK or R)
   - Wrap with `G42 D{tool_id}` / `G40` (LinuxCNC handles offset)
   - Internal: use `G41` instead of `G42`
 
 ### 3.3  G-code writer
-- [ ] `cam/gcode_writer.py`
+- [x] `cam/gcode_writer.py`
   - Header: `G21 G18 G90 G40`
   - Spindle modes:
     - **Constant RPM** → `G97 S{rpm} M3`
@@ -191,8 +194,8 @@
 - [ ] `main.py` — app entry point, loads plugins, opens MainWindow
 - [ ] `tests/test_plugin_loader.py` [x] done
 - [x] `tests/test_profile.py` — segment building, cursor tracking, polygon export
-- [ ] `tests/test_roughing.py` — pyclipper pass generation
-- [ ] `tests/test_gcode_writer.py` — G-code output correctness
+- [x] `tests/test_roughing.py` — pyclipper pass generation
+- [x] `tests/test_gcode_writer.py` — G-code output correctness
 - [ ] `config/linuxcnc_qtdragon.ini.example` — INI snippet for QtDragon button
 - [ ] `config/linuxcnc_gmoccapy.ini.example` — INI snippet for GMOCCAPY button
 - [ ] `config/linuxcnc_axis.axisrc.example` — axisrc F12 binding
