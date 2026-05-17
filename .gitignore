@@ -1,12 +1,24 @@
-__pychache__/
+__pycache__/
 *.pyc
 *.pyo
+*.pyd
 
-# Ignore the .env file which may contain sensitive information
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Sensitive / local config
 .env
-# Ignore the .vscode directory which may contain user-specific settings
 .vscode/
-Zadanie/
 .claude/
 
+# Project design notes (not part of the codebase)
+Zadanie/
+
+# Git internals (redundant but explicit)
 .git/
+
+# OS artefacts
+.DS_Store
+Thumbs.db

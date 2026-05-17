@@ -1,0 +1,68 @@
+{
+  "materials": [
+    {
+      "key": "aluminium_2024",
+      "name": "Aluminium 2024-T4",
+      "category": "Aluminium",
+      "density": 2.78,
+      "hardness_HB": 120,
+      "notes": "High-strength aerospace alloy."
+    },
+    {
+      "key": "aluminium_6061",
+      "name": "Aluminium 6061-T6",
+      "category": "Aluminium",
+      "density": 2.7,
+      "hardness_HB": 95,
+      "notes": "General-purpose aluminium alloy, excellent machinability."
+    },
+    {
+      "key": "brass",
+      "name": "Brass CW614N",
+      "category": "Brass/Copper",
+      "density": 8.5,
+      "hardness_HB": 100,
+      "notes": "Free-cutting brass — high surface speed."
+    },
+    {
+      "key": "cast_iron_grey",
+      "name": "Grey Cast Iron GG20",
+      "category": "Cast Iron",
+      "density": 7.2,
+      "hardness_HB": 200,
+      "notes": "Brittle — use lower feed, no coolant preferred."
+    },
+    {
+      "key": "steel_304ss",
+      "name": "Stainless 304",
+      "category": "Stainless",
+      "density": 7.93,
+      "hardness_HB": 201,
+      "notes": "Austenitic stainless — work-hardening, reduce feed."
+    },
+    {
+      "key": "steel_st37",
+      "name": "St37 / S235",
+      "category": "Steel",
+      "density": 7.85,
+      "hardness_HB": 120,
+      "notes": "Structural mild steel, easy to machine."
+    },
+    {
+      "key": "steel_45",
+      "name": "Steel 45 (C45)",
+      "category": "Steel",
+      "density": 7.85,
+      "hardness_HB": 207,
+      "notes": "Medium-carbon steel, common for shafts and gears."
+    },
+    {
+      "key": "titanium_gr5",
+      "name": "Titanium Grade 5 (Ti-6Al-4V)",
+      "category": "Titanium",
+      "density": 4.43,
+      "hardness_HB": 334,
+      "notes": "Low thermal conductivity — use flood coolant, low Vc."
+    }
+  ]
+}

@@ -109,6 +109,13 @@ class LathePrimitive(ABC):
         """Longer description shown as a tooltip.  Defaults to display_name."""
         return self.display_name
 
+    @property
+    def min_segments(self) -> int:
+        """Minimum number of existing profile segments required before this
+        primitive can be applied.  Override to 1+ for primitives that need a
+        previous segment (e.g. fillet).  Used by the test harness and UI."""
+        return 0
+
     # ------------------------------------------------------------------
     # Parameters
     # ------------------------------------------------------------------

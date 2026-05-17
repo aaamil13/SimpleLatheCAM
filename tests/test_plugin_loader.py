@@ -94,9 +94,10 @@ def test_default_params_in_range():
 def test_validate_defaults_ok():
     loader = PrimitivePluginLoader()
     loader.load(ROOT / "plugins" / "primitives")
-    ctx = make_context()
 
     for p in loader.all():
+        # Build a context that satisfies the primitive's minimum requirements
+        ctx = make_context(segment_count=p.min_segments)
         result = p.validate(p.default_params(), ctx)
         assert result is None, (
             f"{p.name}.validate() returned error for default params: {result}"

@@ -55,12 +55,12 @@
 - [x] `domain/tool_library.py` — serialisation, ToolLibrary CRUD
 
 ### 1.4  Material library
-- [ ] `domain/material.py`
+- [x] `domain/material.py`
   - `Material` dataclass: name, key, density, hardness category
-- [ ] `data/materials/default.json` — Steel_45, St37, Aluminium_6061, Brass, Cast_Iron
+- [x] `data/materials/default.json` — Steel_45, St37, Aluminium_6061, Brass, Cast_Iron
 
 ### 1.5  Recipe serialization
-- [ ] `domain/recipe.py`
+- [x] `domain/recipe.py`
   - `OperationRecord`: primitive name + params dict + direction (external/internal)
   - `ToolSequence`: tool_id + spindle_mode + operations list
   - `PartRecipe`: part_name + stock (D, L, material) + ordered list of ToolSequences
@@ -72,11 +72,11 @@
 
 - [x] `plugins/primitives/cylinder.py` — straight cylindrical step
 - [x] `plugins/primitives/chamfer.py` — angled bevel (custom angle)
-- [ ] `plugins/primitives/taper.py` — conical step (D_start → D_end over L)
-- [ ] `plugins/primitives/fillet.py` — concave/convex radius between two steps
-- [ ] `plugins/primitives/face_turn.py` — face the end of the part
-- [ ] `plugins/primitives/groove.py` — rectangular or V groove (external/internal)
-- [ ] `plugins/primitives/parting.py` — cut-off with chip breaking
+- [x] `plugins/primitives/taper.py` — conical step (D_start → D_end over L)
+- [x] `plugins/primitives/fillet.py` — concave/convex radius between two steps
+- [x] `plugins/primitives/face_turn.py` — face the end of the part
+- [x] `plugins/primitives/groove.py` — rectangular or V groove (external/internal)
+- [x] `plugins/primitives/parting.py` — cut-off with chip breaking
   - **Chip break modes** (ParamSpec `chip_break_mode` as enum choice):
     - `none` — continuous feed to full depth
     - `peck` — feed `peck_depth` mm, retract `retract_amount` mm, repeat
