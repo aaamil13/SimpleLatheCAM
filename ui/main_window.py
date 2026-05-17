@@ -31,6 +31,7 @@ from PySide6.QtWidgets import (
 )
 
 from cam.gcode_writer import GCodeWriter
+from domain.app_config import AppConfig
 from domain.machine import MachineConfig
 from domain.plugin_loader import PrimitivePluginLoader
 from domain.tool_library import ToolLibrary
@@ -48,10 +49,12 @@ class MainWindow(QMainWindow):
         loader:       PrimitivePluginLoader,
         tool_library: Optional[ToolLibrary]  = None,
         machine:      Optional[MachineConfig] = None,
+        app_config:   Optional[AppConfig]    = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
         self._machine     = machine
+        self._app_config  = app_config or AppConfig()
         self._model       = EditorModel(loader, tool_library, parent=self)
         self._recipe_path: Optional[Path] = None
 
@@ -85,7 +88,7 @@ class MainWindow(QMainWindow):
         splitter.addWidget(self._canvas)
 
         # Right — steps panel (accordion)
-        self._steps = StepsPanel(self._model, self._machine, self)
+        self._steps = StepsPanel(self._model, self._machine, self._app_config, self)
         self._steps.setMinimumWidth(220)
         self._steps.setMaximumWidth(340)
         splitter.addWidget(self._steps)
@@ -221,6 +224,7 @@ class MainWindow(QMainWindow):
                 profile=self._model.profile,
                 tool_library=self._model.tool_library,
                 machine=self._machine,
+                app_config=self._app_config,
             )
             Path(path).write_text(writer.generate(), encoding="utf-8")
             self.statusBar().showMessage(f"G-код записан: {path}", 4000)

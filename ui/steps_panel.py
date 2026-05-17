@@ -30,9 +30,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from domain.app_config import AppConfig
 from domain.machine import MachineConfig
 from domain.recipe import OperationRecord, ToolSequence
 from ui.editor_model import EditorModel
+from ui.message_editor import MessageEditor
 from ui.params_panel import ParamsPanel
 
 
@@ -41,15 +43,16 @@ from ui.params_panel import ParamsPanel
 # ---------------------------------------------------------------------------
 
 class OperationEditDialog(QDialog):
-    """Modal dialog: ParamsPanel + optional coolant toggle."""
+    """Modal dialog: ParamsPanel + optional MessageEditor + coolant toggle."""
 
     def __init__(
         self,
-        model:    EditorModel,
-        seq_idx:  int,
-        op_idx:   int,
-        machine:  Optional[MachineConfig] = None,
-        parent:   Optional[QWidget] = None,
+        model:      EditorModel,
+        seq_idx:    int,
+        op_idx:     int,
+        machine:    Optional[MachineConfig] = None,
+        app_config: Optional[AppConfig]    = None,
+        parent:     Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
         self._model   = model
@@ -59,19 +62,27 @@ class OperationEditDialog(QDialog):
         seq    = model.recipe.tool_sequences[seq_idx]
         op     = seq.operations[op_idx]
         plugin = model.loader.get(op.primitive_name)
+        lang   = app_config.operator_language if app_config else "bg"
 
         self.setWindowTitle(plugin.display_name if plugin else op.primitive_name)
-        self.setMinimumWidth(320)
+        self.setMinimumWidth(340)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(8, 8, 8, 8)
         layout.setSpacing(6)
 
+        # Numeric params
         self._panel = ParamsPanel(self)
         ctx = model.profile.context()
         self._panel.set_primitive(plugin, op.params, ctx)
         self._panel.params_changed.connect(self._on_params_changed)
         layout.addWidget(self._panel)
+
+        # Multilingual message editor — only for operator_message primitive
+        if op.primitive_name == "operator_message":
+            self._msg_editor = MessageEditor(op.extras, primary_lang=lang, parent=self)
+            self._msg_editor.extras_changed.connect(self._on_extras_changed)
+            layout.addWidget(self._msg_editor)
 
         # Coolant toggle — only if machine has coolant capability
         if machine is not None and machine.coolant_available:
@@ -98,6 +109,11 @@ class OperationEditDialog(QDialog):
         self._model.select(self._seq_idx, self._op_idx)
         self._model.update_params(params)
 
+    def _on_extras_changed(self, extras: dict) -> None:
+        op = self._model.recipe.tool_sequences[self._seq_idx].operations[self._op_idx]
+        op.extras = {k: v for k, v in extras.items() if v}
+        self._model._mutated(self._seq_idx, self._op_idx)
+
     def _on_coolant_changed(self, state: int) -> None:
         self._model.select(self._seq_idx, self._op_idx)
         self._model.update_coolant_override(bool(state))
@@ -112,19 +128,21 @@ class StepCard(QFrame):
 
     def __init__(
         self,
-        model:    EditorModel,
-        seq_idx:  int,
-        op_idx:   int,
-        op:       OperationRecord,
-        machine:  Optional[MachineConfig] = None,
-        parent:   Optional[QWidget] = None,
+        model:      EditorModel,
+        seq_idx:    int,
+        op_idx:     int,
+        op:         OperationRecord,
+        machine:    Optional[MachineConfig] = None,
+        app_config: Optional[AppConfig]    = None,
+        parent:     Optional[QWidget] = None,
     ) -> None:
         super().__init__(parent)
-        self._model   = model
-        self._seq_idx = seq_idx
-        self._op_idx  = op_idx
-        self._op      = op
-        self._machine = machine
+        self._model      = model
+        self._seq_idx    = seq_idx
+        self._op_idx     = op_idx
+        self._op         = op
+        self._machine    = machine
+        self._app_config = app_config
 
         self.setFrameShape(QFrame.Shape.StyledPanel)
         self.setObjectName("StepCard")
@@ -186,7 +204,8 @@ class StepCard(QFrame):
     def _open_edit(self) -> None:
         self._select()
         dlg = OperationEditDialog(
-            self._model, self._seq_idx, self._op_idx, self._machine, self
+            self._model, self._seq_idx, self._op_idx,
+            self._machine, self._app_config, self
         )
         dlg.exec()
 
@@ -224,13 +243,15 @@ class StepsPanel(QWidget):
 
     def __init__(
         self,
-        model:   EditorModel,
-        machine: Optional[MachineConfig] = None,
+        model:      EditorModel,
+        machine:    Optional[MachineConfig] = None,
+        app_config: Optional[AppConfig]    = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self._model   = model
-        self._machine = machine
+        self._model      = model
+        self._machine    = machine
+        self._app_config = app_config
         self._cards: list[StepCard] = []
 
         root = QVBoxLayout(self)
@@ -265,7 +286,8 @@ class StepsPanel(QWidget):
             self._layout.addWidget(_seq_header(seq))
             for oi, op in enumerate(seq.operations):
                 card = StepCard(
-                    self._model, si, oi, op, self._machine, self._inner
+                    self._model, si, oi, op,
+                    self._machine, self._app_config, self._inner
                 )
                 card.selected.connect(self._model.select)
                 self._cards.append(card)

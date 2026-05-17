@@ -20,6 +20,7 @@ ROOT = Path(__file__).parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from domain.app_config import AppConfig
 from domain.machine import MachineConfig
 from domain.plugin_loader import PrimitivePluginLoader
 from domain.tool_library import ToolLibrary
@@ -55,16 +56,29 @@ def _load_machine() -> MachineConfig | None:
     return MachineConfig.default()
 
 
+def _load_app_config() -> AppConfig:
+    path = ROOT / "data" / "app_config.json"
+    if path.exists():
+        try:
+            return AppConfig.load(path)
+        except Exception as e:
+            print(f"[WARN] App config load failed: {e}", file=sys.stderr)
+    return AppConfig.default()
+
+
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("LatheCadCam")
     app.setStyle("Fusion")
 
-    loader  = _load_plugins()
-    tools   = _load_tools()
-    machine = _load_machine()
+    loader     = _load_plugins()
+    tools      = _load_tools()
+    machine    = _load_machine()
+    app_config = _load_app_config()
 
-    win = MainWindow(loader=loader, tool_library=tools, machine=machine)
+    win = MainWindow(
+        loader=loader, tool_library=tools, machine=machine, app_config=app_config
+    )
 
     # Optional: load recipe from command-line argument
     if len(sys.argv) > 1:

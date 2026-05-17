@@ -59,7 +59,8 @@ class OperationRecord:
     params:         dict[str, float]    = field(default_factory=dict)
     direction:      ToolDirection       = ToolDirection.EXTERNAL
     enabled:        bool                = True
-    coolant_on:     Optional[bool]      = None  # None = inherit from ToolSequence
+    coolant_on:     Optional[bool]      = None   # None = inherit from ToolSequence
+    extras:         dict[str, str]      = field(default_factory=dict)  # e.g. multilingual message text
 
 
 # ---------------------------------------------------------------------------
@@ -114,6 +115,8 @@ def _op_to_dict(op: "OperationRecord") -> dict:
     }
     if op.coolant_on is not None:
         d["coolant_on"] = op.coolant_on
+    if op.extras:
+        d["extras"] = op.extras
     return d
 
 
@@ -244,6 +247,7 @@ class PartRecipe:
                     direction=ToolDirection(od.get("direction", "external")),
                     enabled=od.get("enabled", True),
                     coolant_on=od.get("coolant_on", None),
+                    extras=od.get("extras", {}),
                 )
                 for od in sd.get("operations", [])
             ]

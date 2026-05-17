@@ -1,0 +1,7 @@
+{
+  "operator_language": "bg",
+  "gcode_msg_style": "MSG",
+  "use_confirm_mcode": true,
+  "confirm_mcode": 9000,
+  "messages_file": "/tmp/lathecadcam_messages.json"
+}

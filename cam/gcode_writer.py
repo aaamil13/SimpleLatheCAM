@@ -31,18 +31,21 @@ Program structure
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 from cam.finishing import FinishingPass
 from cam.roughing import ExternalRougher, RoughingPass
+from domain.app_config import AppConfig
 from domain.tool import SpindleMode, ToolDirection
 
 if TYPE_CHECKING:
     from domain.machine import MachineConfig
     from domain.plugin_loader import PrimitivePluginLoader
     from domain.profile import LatheProfile
-    from domain.recipe import PartRecipe
+    from domain.recipe import OperationRecord, PartRecipe
     from domain.tool_library import ToolLibrary
 
 
@@ -84,27 +87,36 @@ class GCodeWriter:
 
     def __init__(
         self,
-        recipe: "PartRecipe",
-        profile: "LatheProfile",
+        recipe:     "PartRecipe",
+        profile:    "LatheProfile",
         tool_library: "ToolLibrary",
-        machine: "MachineConfig | None" = None,
-        config: WriterConfig | None = None,
+        machine:    "MachineConfig | None" = None,
+        config:     WriterConfig | None    = None,
+        app_config: AppConfig | None       = None,
     ) -> None:
-        self._recipe   = recipe
-        self._profile  = profile
-        self._tools    = tool_library
-        self._machine  = machine
-        self._cfg      = config or WriterConfig()
+        self._recipe     = recipe
+        self._profile    = profile
+        self._tools      = tool_library
+        self._machine    = machine
+        self._cfg        = config or WriterConfig()
+        self._app_config = app_config or AppConfig()
+        self._messages:  list[dict] = []   # collected per generate() call
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def generate(self) -> str:
-        return "\n".join(self._build_lines())
+        self._messages = []
+        lines = self._build_lines()
+        self._flush_messages()
+        return "\n".join(lines)
 
     def generate_lines(self) -> list[str]:
-        return self._build_lines()
+        self._messages = []
+        lines = self._build_lines()
+        self._flush_messages()
+        return lines
 
     # ------------------------------------------------------------------
     # Internal
@@ -125,7 +137,7 @@ class GCodeWriter:
         z_home    = 50.0
 
         if self._machine:
-            sp = self._machine.safe_positions
+            sp = self._machine.safe          # SafePositions field
             safe_x_r  = sp.x_clearance
             safe_z_tc = sp.z_tool_change
             x_tc_r    = sp.x_tool_change
@@ -173,6 +185,15 @@ class GCodeWriter:
         if seq.coolant_on:
             lines.append("M8")
 
+        # -- operator messages / manual ops at start of sequence ---------
+        for op in seq.operations:
+            if not op.enabled:
+                continue
+            if op.primitive_name == "operator_message":
+                lines.extend(self._operator_message_lines(op))
+            elif op.primitive_name == "manual_spindle":
+                lines.extend(self._manual_spindle_lines(op, seq.max_rpm))
+
         # -- determine feed rates ----------------------------------------
         mat_key  = self._recipe.stock.material_key
         feed_r   = self._cfg.default_feed_rough
@@ -186,10 +207,12 @@ class GCodeWriter:
                 feed_f   = round(cd.fn_rec * rpm_est * 0.8, 0)
 
         # -- roughing passes ---------------------------------------------
-        has_roughing = any(
+        _SKIP = {"parting", "rapid_to", "operator_message", "manual_spindle"}
+        has_machining = any(
             op.enabled for op in seq.operations
-            if op.primitive_name not in ("parting", "rapid_to")
+            if op.primitive_name not in _SKIP
         )
+        has_roughing = has_machining
         if has_roughing:
             rougher = ExternalRougher(
                 profile=self._profile,
@@ -205,21 +228,22 @@ class GCodeWriter:
                 lines.append("(--- roughing ---)")
                 lines.extend(self._roughing_lines(passes, safe_x_r))
 
-        # -- finishing pass ----------------------------------------------
-        direction = seq.operations[0].direction if seq.operations else ToolDirection.EXTERNAL
-        internal  = direction == ToolDirection.INTERNAL
+        # -- finishing pass (only when there is actual machining geometry) --
+        if has_machining:
+            direction = seq.operations[0].direction if seq.operations else ToolDirection.EXTERNAL
+            internal  = direction == ToolDirection.INTERNAL
 
-        fin = FinishingPass(
-            profile=self._profile,
-            feed_rate=feed_f,
-            tool_id=seq.tool_id,
-            internal=internal,
-            approach_z=self._cfg.approach_clearance,
-            approach_r=safe_x_r,
-            retract_r=safe_x_r,
-        )
-        lines.append("(--- finishing ---)")
-        lines.extend(fin.lines())
+            fin = FinishingPass(
+                profile=self._profile,
+                feed_rate=feed_f,
+                tool_id=seq.tool_id,
+                internal=internal,
+                approach_z=self._cfg.approach_clearance,
+                approach_r=safe_x_r,
+                retract_r=safe_x_r,
+            )
+            lines.append("(--- finishing ---)")
+            lines.extend(fin.lines())
 
         # -- parting special handling ------------------------------------
         for op in seq.operations:
@@ -263,6 +287,69 @@ class GCodeWriter:
                 for r, z in rp.moves:
                     lines.append(f"G1 X{_fmt(r * 2.0)} Z{_fmt(z)} F{rp.feed_rate:.0f}")
         return lines
+
+    def _register_message(self, extras: dict, title: str) -> int:
+        """Add a message to the catalogue; return its index."""
+        idx = len(self._messages)
+        entry = {"index": idx, "title": title}
+        entry.update(extras)
+        self._messages.append(entry)
+        return idx
+
+    def _confirm_pause(self, idx: int) -> list[str]:
+        """Return G-code lines that pause for operator confirmation."""
+        cfg = self._app_config
+        if cfg.use_confirm_mcode:
+            return [
+                f"M{cfg.confirm_mcode} P{idx}"
+                f"  (operator dialog — needs M{cfg.confirm_mcode} in USER_M_PATH)",
+            ]
+        return ["M0         (pause — press CYCLE START to continue)"]
+
+    def _operator_message_lines(self, op: "OperationRecord") -> list[str]:
+        text = self._app_config.message_text(op.extras)
+        if not text:
+            text = "Operator action required"
+        lines: list[str] = [self._app_config.format_gcode_msg(text)]
+        require = op.params.get("require_confirm", 1.0) > 0.5
+        if require:
+            idx = self._register_message(op.extras, "Потвърждение")
+            lines.extend(self._confirm_pause(idx))
+        return lines
+
+    def _manual_spindle_lines(self, op: "OperationRecord", seq_max_rpm: int) -> list[str]:
+        rpm = op.params.get("spindle_rpm", 500.0)
+        if self._machine:
+            rpm = self._machine.cap_rpm(rpm)
+        else:
+            rpm = min(rpm, seq_max_rpm)
+        text = self._app_config.message_text(op.extras)
+        if not text:
+            text = "Ръчна операция — натиснете CYCLE START след приключване"
+        idx = self._register_message(
+            op.extras or {"bg": text}, "Ръчна операция"
+        )
+        lines: list[str] = [
+            f"G97 S{rpm:.0f} M3  (manual spindle operation)",
+            self._app_config.format_gcode_msg(text),
+        ]
+        lines.extend(self._confirm_pause(idx))
+        lines.append("M5         (spindle off)")
+        return lines
+
+    def _flush_messages(self) -> None:
+        """Write collected messages to the catalogue file for M9000 to read."""
+        if not self._messages:
+            return
+        path = Path(self._app_config.messages_file)
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(
+                json.dumps(self._messages, indent=2, ensure_ascii=False),
+                encoding="utf-8",
+            )
+        except OSError:
+            pass   # non-fatal — standalone / Windows without /tmp
 
     def _parting_lines(
         self,
