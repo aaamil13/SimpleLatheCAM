@@ -50,6 +50,8 @@ def make_context(**kwargs) -> ProfileContext:
         stock_d=50.0,
         stock_l=150.0,
         segment_count=0,
+        drilled_r=5.0,   # simulate a 10 mm starter hole for bore validation
+        drilled_z=-50.0,
     )
     defaults.update(kwargs)
     return ProfileContext(**defaults)

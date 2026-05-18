@@ -38,6 +38,8 @@ class LatheProfile:
         self._cursor_r: float = stock_d / 2.0   # internal: radius
         self._cursor_z: float = 0.0
         self.active_tag: tuple[int, int] | None = None  # set by EditorModel._rebuild
+        self.drilled_r:  float = 0.0   # radius of axial drill hole (0 = solid stock)
+        self.drilled_z:  float = 0.0   # axial depth reached by last drill op
 
     # ------------------------------------------------------------------
     # Cursor (diameter-facing public API)
@@ -73,6 +75,8 @@ class LatheProfile:
             stock_d=self.stock_d,
             stock_l=self.stock_l,
             segment_count=len(self._segments),
+            drilled_r=self.drilled_r,
+            drilled_z=self.drilled_z,
         )
 
     # ------------------------------------------------------------------

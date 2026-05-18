@@ -91,8 +91,10 @@ class DrillPrimitive(LathePrimitive):
         return None
 
     def build(self, profile: "LatheProfile", params: dict) -> None:
-        pass  # Drilling does not add geometry to the external profile.
-              # GCodeWriter emits G82/G83 when it encounters this primitive name.
+        # Record the drilled hole in profile state so subsequent bore/thread
+        # operations can validate against it.  External contour is unchanged.
+        profile.drilled_r = params["diameter"] / 2.0
+        profile.drilled_z = profile.cursor_z - params["depth"]
 
     def draw_icon(self, painter: QPainter, rect: QRect) -> None:
         painter.save()

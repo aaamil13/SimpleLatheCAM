@@ -77,6 +77,16 @@ class BorePrimitive(LathePrimitive):
         err = super().validate(params, context)
         if err:
             return err
+        if context.drilled_r == 0.0:
+            return (
+                "Не може да се разстърже плътна заготовка. "
+                "Добавете операция Пробиване преди разстъргването."
+            )
+        if params["d_bore"] <= context.drilled_r * 2:
+            return (
+                f"Диаметърът на разстъргването ({params['d_bore']} mm) трябва да е "
+                f"по-голям от пробития отвор ({context.drilled_r * 2:.1f} mm)."
+            )
         if params["d_bore"] >= context.stock_d:
             return (
                 f"Диаметърът на отвора {params['d_bore']} mm надвишава "
@@ -84,7 +94,6 @@ class BorePrimitive(LathePrimitive):
             )
         if params["length"] > context.stock_l:
             return "Дълбочината на разстъргването надвишава дължината на заготовката."
-        # Warn when bore-to-diameter ratio is high (chatter risk)
         if params["length"] / params["d_bore"] > 5:
             return (
                 f"Дълбочина/Диаметър = {params['length']/params['d_bore']:.1f} "

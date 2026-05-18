@@ -1,13 +1,17 @@
 """
-Primitive: Taper — conical step (D_start → D_end over length L).
+Primitive: Taper — conical step with two definition modes.
 
-The taper starts at the current cursor diameter and ends at D_end.
-Positive taper: D_end < current diameter (narrowing toward chuck).
-Negative taper: D_end > current diameter (widening — e.g. back taper).
+Mode 0 (default): define by end diameter D_end and axial length L.
+Mode 1:           define by half-angle α (deg) and length L.
+                  α > 0 → narrowing (conventional external taper).
+                  α < 0 → widening (back taper / relief).
+
+Formula mode 1:  d_end = cursor_x − 2 · L · tan(α)
 """
 
 from __future__ import annotations
 
+import math
 from typing import TYPE_CHECKING
 
 from PySide6.QtCore import QRect, Qt
@@ -35,25 +39,49 @@ class TaperPrimitive(LathePrimitive):
 
     @property
     def tooltip(self) -> str:
-        return "Конусен стъпал — от текущия диаметър до D_end по дължина L."
+        return (
+            "Конусен стъпал.\n"
+            "Режим 0 — по краен диаметър и дължина.\n"
+            "Режим 1 — по полу-ъгъл α (°) и дължина."
+        )
 
     @property
     def params_schema(self) -> list[ParamSpec]:
         return [
-            ParamSpec("d_end",  "Краен диаметър", "mm",
+            ParamSpec("mode",   "Режим (0=⌀ 1=ъгъл)", "",
+                      default=0.0, min_val=0.0, max_val=1.0,
+                      tooltip="0 = задай краен диаметър; 1 = задай полу-ъгъл"),
+            ParamSpec("d_end",  "Краен диаметър",      "mm",
                       default=20.0, min_val=0.0, max_val=1000.0,
-                      tooltip="Диаметър в края на конуса"),
-            ParamSpec("length", "Дължина",        "mm",
+                      tooltip="Диаметър в края на конуса (само Режим 0)"),
+            ParamSpec("angle",  "Полу-ъгъл α",         "deg",
+                      default=15.0, min_val=-89.0, max_val=89.0,
+                      tooltip="Ъгъл между конусната повърхност и оста Z (само Режим 1)"),
+            ParamSpec("length", "Дължина",              "mm",
                       default=20.0, min_val=0.1, max_val=2000.0),
         ]
+
+    def _resolve_d_end(self, params: dict, cursor_x: float) -> float:
+        """Compute the final diameter from params and current cursor."""
+        if round(params.get("mode", 0)) == 1:
+            return cursor_x - 2.0 * params["length"] * math.tan(
+                math.radians(params["angle"])
+            )
+        return params["d_end"]
 
     def validate(self, params: dict, context: ProfileContext) -> str | None:
         err = super().validate(params, context)
         if err:
             return err
-        if params["d_end"] > context.stock_d:
+        d_end = self._resolve_d_end(params, context.cursor_x)
+        if d_end < 0:
             return (
-                f"Краен диаметър {params['d_end']} mm надвишава "
+                f"Ъгълът {params['angle']:.1f}° и дължина {params['length']} mm "
+                "дават отрицателен краен диаметър — намалете ъгъла или дължината."
+            )
+        if d_end > context.stock_d:
+            return (
+                f"Краен диаметър {d_end:.2f} mm надвишава "
                 f"диаметъра на заготовката ({context.stock_d} mm)."
             )
         used_z = abs(context.cursor_z) + params["length"]
@@ -65,7 +93,8 @@ class TaperPrimitive(LathePrimitive):
         return None
 
     def build(self, profile: "LatheProfile", params: dict) -> None:
-        profile.add_taper(d_end=params["d_end"], length=params["length"])
+        d_end = self._resolve_d_end(params, profile.cursor_x)
+        profile.add_taper(d_end=d_end, length=params["length"])
 
     def draw_icon(self, painter: QPainter, rect: QRect) -> None:
         painter.save()

@@ -68,6 +68,8 @@ class ProfileContext:
     stock_l: float       # original stock length
     segment_count: int   # number of segments already in the profile
     machine: "object | None" = field(default=None)   # MachineConfig | None
+    drilled_r: float = 0.0   # radius of existing axial bore (0 = solid stock)
+    drilled_z: float = 0.0   # axial depth of that bore
 
 
 # ---------------------------------------------------------------------------
