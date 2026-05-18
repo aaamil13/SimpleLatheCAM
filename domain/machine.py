@@ -24,16 +24,21 @@ from pathlib import Path
 
 
 class ChuckSide(str, Enum):
-    """Which side of the bed the spindle/chuck is mounted on.
-
-    LEFT  — standard configuration: chuck on the operator's left,
-            tailstock on the right.  Z decreases left-to-right.
-    RIGHT — reversed spindle (e.g. sub-spindle or inverted lathe):
-            chuck on the right, tailstock on the left.
-            The canvas mirrors the Z axis for correct visualisation.
-    """
+    """Which side of the bed the spindle/chuck is mounted on."""
     LEFT  = "left"
     RIGHT = "right"
+
+
+class ToolPostPosition(str, Enum):
+    """Physical position of the tool-post relative to the spindle centreline.
+
+    FRONT — standard: tool is on the operator's side (positive X from axis).
+    REAR  — CNC slant-bed: tool is behind the part.  When arc output is added,
+            G2 and G3 must be swapped for REAR.  Currently all arcs are
+            linearised to G1, so this field is informational / future-use.
+    """
+    FRONT = "front"
+    REAR  = "rear"
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +158,12 @@ class MachineConfig:
     bar_capacity: float = 52.0               # mm diameter — through-bar bore
 
     # ------------------------------------------------------------------
+    # Tool-post kinematics
+    # ------------------------------------------------------------------
+    toolpost: ToolPostPosition = ToolPostPosition.FRONT
+    spindle_dir_cw: bool = True   # True → M3 (CW), False → M4 (CCW / left-hand)
+
+    # ------------------------------------------------------------------
     # Extras
     # ------------------------------------------------------------------
     coolant_available: bool = True
@@ -202,6 +213,8 @@ class MachineConfig:
                 "chuck_jaw_depth": self.chuck_jaw_depth,
                 "bar_capacity": self.bar_capacity,
             },
+            "toolpost": self.toolpost.value,
+            "spindle_dir_cw": self.spindle_dir_cw,
             "coolant_available": self.coolant_available,
         }
         path.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
@@ -229,6 +242,8 @@ class MachineConfig:
             chuck_diameter=wh.get("chuck_diameter", 200.0),
             chuck_jaw_depth=wh.get("chuck_jaw_depth", 40.0),
             bar_capacity=wh.get("bar_capacity", 52.0),
+            toolpost=ToolPostPosition(data.get("toolpost", "front")),
+            spindle_dir_cw=data.get("spindle_dir_cw", True),
             coolant_available=data.get("coolant_available", True),
         )
 

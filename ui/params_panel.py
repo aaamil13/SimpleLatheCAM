@@ -17,6 +17,7 @@ from typing import Optional
 
 from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
+    QComboBox,
     QDoubleSpinBox,
     QFormLayout,
     QLabel,
@@ -39,6 +40,7 @@ class ParamsPanel(QWidget):
         self._primitive: Optional[LathePrimitive] = None
         self._context:   Optional[ProfileContext]  = None
         self._spinners:  dict[str, QDoubleSpinBox] = {}
+        self._combos:    dict[str, QComboBox]      = {}
 
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -85,7 +87,7 @@ class ParamsPanel(QWidget):
 
     def _rebuild(self, params: Optional[dict]) -> None:
         self._spinners.clear()
-        # Clear form
+        self._combos.clear()
         while self._form.rowCount():
             self._form.removeRow(0)
 
@@ -98,31 +100,74 @@ class ParamsPanel(QWidget):
         current_params = params or self._primitive.default_params()
 
         for spec in self._primitive.params_schema:
-            sb = QDoubleSpinBox()
-            sb.setDecimals(3)
-            sb.setSingleStep(spec.step)
-            sb.setRange(spec.min_val, spec.max_val)
-            sb.setValue(current_params.get(spec.name, spec.default))
-            if spec.unit:
-                sb.setSuffix(f"  {spec.unit}")
-            if spec.tooltip:
-                sb.setToolTip(spec.tooltip)
-            sb.valueChanged.connect(self._on_value_changed)
-            self._spinners[spec.name] = sb
-
             lbl = QLabel(spec.label)
             if spec.tooltip:
                 lbl.setToolTip(spec.tooltip)
-            self._form.addRow(lbl, sb)
+
+            if spec.choices is not None:
+                cb = QComboBox()
+                for ch in spec.choices:
+                    cb.addItem(ch)
+                idx = int(round(current_params.get(spec.name, spec.default)))
+                cb.setCurrentIndex(max(0, min(idx, len(spec.choices) - 1)))
+                if spec.tooltip:
+                    cb.setToolTip(spec.tooltip)
+                cb.currentIndexChanged.connect(self._on_value_changed)
+                self._combos[spec.name] = cb
+                self._form.addRow(lbl, cb)
+            else:
+                sb = QDoubleSpinBox()
+                sb.setDecimals(3)
+                sb.setSingleStep(spec.step)
+                sb.setRange(spec.min_val, spec.max_val)
+                sb.setValue(current_params.get(spec.name, spec.default))
+                if spec.unit:
+                    sb.setSuffix(f"  {spec.unit}")
+                if spec.tooltip:
+                    sb.setToolTip(spec.tooltip)
+                sb.valueChanged.connect(self._on_value_changed)
+                self._spinners[spec.name] = sb
+                self._form.addRow(lbl, sb)
 
         self._revalidate()
 
     def _on_value_changed(self) -> None:
+        changed = self._sender_name()
+        params  = self._current_params()
+        if changed and self._primitive is not None:
+            updated = self._primitive.on_param_changed(changed, params)
+            if updated is not params:
+                self._apply_params(updated)
         self._revalidate()
         self.params_changed.emit(self._current_params())
 
+    def _sender_name(self) -> str | None:
+        s = self.sender()
+        for name, w in self._spinners.items():
+            if w is s:
+                return name
+        for name, w in self._combos.items():
+            if w is s:
+                return name
+        return None
+
+    def _apply_params(self, params: dict) -> None:
+        """Push new values into widgets without re-triggering _on_value_changed."""
+        for name, sb in self._spinners.items():
+            if name in params:
+                sb.blockSignals(True)
+                sb.setValue(params[name])
+                sb.blockSignals(False)
+        for name, cb in self._combos.items():
+            if name in params:
+                cb.blockSignals(True)
+                cb.setCurrentIndex(int(round(params[name])))
+                cb.blockSignals(False)
+
     def _current_params(self) -> dict:
-        return {name: sb.value() for name, sb in self._spinners.items()}
+        params = {name: sb.value() for name, sb in self._spinners.items()}
+        params.update({name: float(cb.currentIndex()) for name, cb in self._combos.items()})
+        return params
 
     def _revalidate(self) -> None:
         if self._primitive is None:

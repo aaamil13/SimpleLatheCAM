@@ -1,31 +1,7 @@
-"""
-GCodeWriter — assembles a complete LinuxCNC G-code program from a PartRecipe.
+"""GCodeWriter — assembles a complete LinuxCNC G-code program from a PartRecipe.
 
-Inputs
-------
-  recipe        : PartRecipe (tool sequences + operations)
-  profile       : LatheProfile already built from the recipe operations
-  tool_library  : ToolLibrary to look up cutting data
-  machine       : MachineConfig for safe positions, RPM cap, etc.
-
-Output
-------
-  A single string (or list of lines) containing the complete G-code program.
-
-Program structure
------------------
-  Header block   : G21 G18 G90 G40 ; metric, XZ plane, absolute, cancel comp
-  For each ToolSequence:
-    Rapid to z_tool_change (safe), then x_tool_change
-    T{id} M6                    ; tool change
-    Spindle setup (G96 or G97)
-    M8 if coolant_on
-    Roughing block (ExternalRougher passes) — only if has roughing ops
-    Finishing block (FinishingPass contour)
-    Parting block — if last op is parting
-    M9 (coolant off)
-    Retract to x_clearance
-  Footer: G00 to home, M5 M30
+Header · ToolSequence blocks (roughing → finishing → parting → threading) · Footer.
+Collision warnings (trailing-angle check) are injected as comments after the header.
 """
 
 from __future__ import annotations
@@ -33,11 +9,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from cam.collision import check_trailing_clearance
 from cam.finishing import FinishingPass
 from cam.operator_msg import MessageCatalogue
 from cam.parting import parting_lines
 from cam.roughing import ExternalRougher, RoughingPass
 from domain.app_config import AppConfig
+from domain.thread_data import get_effective_thread, get_infeed_angle
 from domain.tool import SpindleMode, ToolDirection
 
 if TYPE_CHECKING:
@@ -119,6 +97,10 @@ class GCodeWriter:
         lines: list[str] = []
         lines.extend(_HEADER)
         lines.append("")
+        for si, seq in enumerate(self._recipe.tool_sequences):
+            tool = self._tools.get_by_id(seq.tool_id)
+            for w in check_trailing_clearance(self._profile, tool):
+                lines.append(f"({w})")
 
         stock   = self._recipe.stock
         stock_r = stock.diameter / 2.0
@@ -227,10 +209,11 @@ class GCodeWriter:
         max_rpm = seq.max_rpm
         if self._machine:
             max_rpm = self._machine.cap_rpm(max_rpm)
+        m = "M3" if (self._machine is None or self._machine.spindle_dir_cw) else "M4"
         if seq.spindle_mode == SpindleMode.CSS:
-            return [f"G96 S{seq.spindle_value:.0f} D{max_rpm} M3  (CSS m/min)"]
+            return [f"G96 S{seq.spindle_value:.0f} D{max_rpm} {m}  (CSS m/min)"]
         rpm = min(seq.spindle_value, max_rpm)
-        return [f"G97 S{rpm:.0f} M3  (constant RPM)"]
+        return [f"G97 S{rpm:.0f} {m}  (constant RPM)"]
 
     def _feed_rates(self, seq, stock_r: float, tool) -> tuple[float, float]:
         feed_r = self._cfg.default_feed_rough
@@ -273,27 +256,30 @@ class GCodeWriter:
     def _threading_block(
         self, op, tag: tuple[int, int], safe_x_r: float
     ) -> list[str]:
-        p        = op.params
-        pitch    = p["pitch"]
-        depth    = p["depth"] or 0.6495 * pitch
-        first    = p["first_pass"]
-        spring   = int(p.get("spring_passes", 1))
-        angle    = p.get("infeed_angle", 29.5)
-        internal = (op.direction == ToolDirection.INTERNAL)
+        p                    = op.params
+        pitch, depth, taper  = get_effective_thread(p)
+        first                = p.get("first_pass", 0.3)
+        spring               = int(p.get("spring_passes", 1))
+        infeed_m             = int(round(p.get("infeed_mode", 1)))
+        angle                = get_infeed_angle(infeed_m)
+        internal             = (op.direction == ToolDirection.INTERNAL)
 
         segs = [s for s in self._profile.segments() if s.tag == tag]
         if not segs:
             return [f"(threading: no profile segments for tag {tag})"]
 
-        z_start  = segs[0].points()[0][1]
-        z_end    = segs[-1].points()[-1][1]
-        thread_r = segs[0].points()[0][0]
-        x_start  = (thread_r - depth) * 2.0 if internal else thread_r * 2.0
+        z_start    = segs[0].points()[0][1]
+        z_end      = segs[-1].points()[-1][1]
+        thread_r   = segs[0].points()[0][0]
+        x_start    = (thread_r - depth) * 2.0 if internal else thread_r * 2.0
+        thread_len = abs(z_end - z_start)
+        # I = radius change from start to end; negative for external taper
+        i_val      = taper * thread_len * (1.0 if internal else -1.0)
 
         return [
             f"G0 X{_fmt(safe_x_r * 2.0)} Z{_fmt(z_start + 2.0 * pitch)}",
             f"G0 X{_fmt(x_start)}",
-            (f"G76 P{pitch:.4f} Z{_fmt(z_end)} I0 "
+            (f"G76 P{pitch:.4f} Z{_fmt(z_end)} I{_fmt(i_val)} "
              f"J{_fmt(first)} K{_fmt(depth)} Q{angle:.1f} H{spring}"),
             f"G0 X{_fmt(safe_x_r * 2.0)}",
         ]

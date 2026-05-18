@@ -40,6 +40,7 @@ class ParamSpec:
     max_val: float
     tooltip: str = ""
     step: float = field(default=0.0)  # spinner step; 0 → auto (0.1 for mm, 1 for deg)
+    choices: "list[str] | None" = field(default=None)  # if set → renders as QComboBox, value = index
 
     def __post_init__(self) -> None:
         if self.step == 0.0:
@@ -133,6 +134,14 @@ class LathePrimitive(ABC):
     def default_params(self) -> dict[str, float]:
         """Convenience: returns {name: default} for every ParamSpec."""
         return {p.name: p.default for p in self.params_schema}
+
+    def on_param_changed(self, name: str, params: dict) -> dict:
+        """Called when any param changes in the UI.
+
+        Return the same *params* dict unchanged (default), or a NEW dict with
+        dependent fields updated.  Returning *params* itself means no cascade.
+        """
+        return params
 
     # ------------------------------------------------------------------
     # Validation

@@ -21,18 +21,19 @@ from cam.gcode_writer import GCodeWriter, WriterConfig
 # ---------------------------------------------------------------------------
 
 def _threading_op(pitch=1.5, length_z=20.0, depth=0.0, first_pass=0.3,
-                  spring_passes=1.0, infeed_angle=29.5,
+                  spring_passes=1.0, infeed_mode=1, std_idx=0,
                   direction=ToolDirection.EXTERNAL) -> OperationRecord:
     return OperationRecord(
         primitive_name="threading",
         params={
+            "std_idx": float(std_idx),   # 0 = manual, 1+ = standard table
             "pitch": pitch,
             "length_z": length_z,
             "z_offset": 0.0,
             "depth": depth,
             "first_pass": first_pass,
             "spring_passes": spring_passes,
-            "infeed_angle": infeed_angle,
+            "infeed_mode": float(infeed_mode),
         },
         direction=direction,
     )
@@ -84,12 +85,13 @@ def test_threading_primitive_loads():
 def test_threading_params_schema():
     prim = _loader().get("threading")
     names = [p.name for p in prim.params_schema]
-    assert "pitch" in names
-    assert "length_z" in names
-    assert "depth" in names
-    assert "first_pass" in names
+    assert "std_idx"       in names
+    assert "pitch"         in names
+    assert "length_z"      in names
+    assert "depth"         in names
+    assert "first_pass"    in names
     assert "spring_passes" in names
-    assert "infeed_angle" in names
+    assert "infeed_mode"   in names
 
 
 def test_threading_build_does_not_change_diameter():
@@ -102,9 +104,9 @@ def test_threading_build_does_not_change_diameter():
     x_before = profile.cursor_x
 
     prim.build(profile, {
-        "pitch": 1.5, "length_z": 20.0, "z_offset": 0.0,
+        "std_idx": 0.0, "pitch": 1.5, "length_z": 20.0, "z_offset": 0.0,
         "depth": 0.0, "first_pass": 0.3, "spring_passes": 1.0,
-        "infeed_angle": 29.5,
+        "infeed_mode": 1.0,
     })
 
     assert abs(profile.cursor_x - x_before) < 1e-6, (
@@ -121,9 +123,9 @@ def test_threading_build_advances_cursor_z():
     z_before = profile.cursor_z
 
     prim.build(profile, {
-        "pitch": 1.5, "length_z": 20.0, "z_offset": 0.0,
+        "std_idx": 0.0, "pitch": 1.5, "length_z": 20.0, "z_offset": 0.0,
         "depth": 0.0, "first_pass": 0.3, "spring_passes": 1.0,
-        "infeed_angle": 29.5,
+        "infeed_mode": 1.0,
     })
 
     assert profile.cursor_z < z_before, "cursor_z must advance in -Z direction"
@@ -136,9 +138,9 @@ def test_threading_validate_rejects_large_first_pass():
     prim = _loader().get("threading")
     ctx = ProfileContext(cursor_x=30.0, cursor_z=0.0, stock_d=40.0, stock_l=100.0, segment_count=1)
     err = prim.validate({
-        "pitch": 1.5, "length_z": 20.0, "z_offset": 0.0,
+        "std_idx": 0.0, "pitch": 1.5, "length_z": 20.0, "z_offset": 0.0,
         "depth": 0.9, "first_pass": 1.0,  # first_pass >= depth
-        "spring_passes": 1.0, "infeed_angle": 29.5,
+        "spring_passes": 1.0, "infeed_mode": 1.0,
     }, ctx)
     assert err is not None
 
@@ -149,9 +151,9 @@ def test_threading_validate_rejects_overlong_thread():
     prim = _loader().get("threading")
     ctx = ProfileContext(cursor_x=30.0, cursor_z=-80.0, stock_d=40.0, stock_l=100.0, segment_count=1)
     err = prim.validate({
-        "pitch": 1.5, "length_z": 50.0, "z_offset": 0.0,  # -80 - 50 = -130 > -100
+        "std_idx": 0.0, "pitch": 1.5, "length_z": 50.0, "z_offset": 0.0,  # -80 - 50 = -130 > -100
         "depth": 0.9, "first_pass": 0.3,
-        "spring_passes": 1.0, "infeed_angle": 29.5,
+        "spring_passes": 1.0, "infeed_mode": 1.0,
     }, ctx)
     assert err is not None
 
@@ -235,3 +237,64 @@ def test_gcode_writer_threading_auto_depth():
     assert f"K{expected_depth:.3f}" in g76, (
         f"Expected K{expected_depth:.3f} in: {g76}"
     )
+
+
+def test_standard_thread_std_idx_uses_table():
+    """std_idx > 0 should pull pitch and depth from the thread table."""
+    from domain.thread_data import THREADS, get_effective_thread
+    # M6 coarse is index 5 in THREADS (0-based), so std_idx=6 (offset by 1 for Manual)
+    spec = THREADS[5]  # M6 p=1.00
+    assert abs(spec.pitch_mm - 1.0) < 1e-6
+    params = {"std_idx": 6.0, "pitch": 99.0, "depth": 0.0, "infeed_mode": 1.0,
+              "length_z": 20.0, "z_offset": 0.0, "first_pass": 0.3, "spring_passes": 1.0}
+    pitch, depth, taper = get_effective_thread(params)
+    assert abs(pitch - 1.0) < 1e-6, "Should use table pitch, not manual 99.0"
+    assert abs(depth - spec.depth_mm) < 1e-6
+    assert taper == 0.0  # M6 is cylindrical
+
+
+def test_npt_thread_has_nonzero_taper():
+    """NPT threads must have taper_rate > 0."""
+    from domain.thread_data import THREADS, get_effective_thread
+    npt_specs = [t for t in THREADS if t.family == "npt"]
+    assert npt_specs, "No NPT threads in table"
+    for s in npt_specs:
+        assert s.taper_rate > 0.0, f"{s.label} has zero taper_rate"
+
+
+def test_gcode_writer_npt_thread_has_nonzero_i():
+    """NPT threading G76 must have a non-zero I taper parameter."""
+    from domain.thread_data import THREADS
+    # Find 1/2" NPT: tpi=14, pitch ≈ 1.8143
+    npt_idx = next(i for i, t in enumerate(THREADS) if t.family == "npt")
+    op = _threading_op(std_idx=npt_idx + 1, first_pass=0.2)  # +1 for Manual offset
+    profile = _build_profile_with_threading(tag=(0, 0), z_start=0.0, z_end=-20.0)
+    writer = _make_writer(op, profile)
+    lines = writer.generate_lines()
+    g76 = next(l for l in lines if "G76" in l)
+    # Extract I value
+    import re
+    m = re.search(r"I(-?\d+\.\d+)", g76)
+    assert m is not None, f"I parameter not found in: {g76}"
+    i_val = float(m.group(1))
+    assert abs(i_val) > 1e-6, f"NPT I should be non-zero, got {i_val}"
+
+
+def test_infeed_mode_radial_gives_q0():
+    """infeed_mode=0 (radial) should produce Q0.0 in G76."""
+    op = _threading_op(infeed_mode=0)
+    profile = _build_profile_with_threading(tag=(0, 0))
+    writer = _make_writer(op, profile)
+    lines = writer.generate_lines()
+    g76 = next(l for l in lines if "G76" in l)
+    assert "Q0.0" in g76, f"Expected Q0.0 for radial infeed in: {g76}"
+
+
+def test_infeed_mode_leading_gives_q29():
+    """infeed_mode=1 (leading flank) should produce Q29.5 in G76."""
+    op = _threading_op(infeed_mode=1)
+    profile = _build_profile_with_threading(tag=(0, 0))
+    writer = _make_writer(op, profile)
+    lines = writer.generate_lines()
+    g76 = next(l for l in lines if "G76" in l)
+    assert "Q29.5" in g76, f"Expected Q29.5 for leading flank in: {g76}"
