@@ -1,26 +1,8 @@
 """
 LatheCanvas — interactive 2D cross-section view of the lathe profile.
 
-Coordinate mapping
-------------------
-  World : radius (mm, ≥0) on Y axis, Z (mm, ≤0) on X axis
-  Screen: origin top-left; X increases rightward (= Z decreasing);
-          Y increases downward (= radius decreasing)
-
-Interactions
-------------
-  Wheel          — zoom centred on cursor
-  Middle-drag    — pan
-  Left-click     — select the nearest operation segment
-  Right-click    — context menu (delete, insert before/after, stock settings)
-  Hover          — nearest segment highlighted in orange
-
-Signals emitted
----------------
-  segment_selected(seq_idx, op_idx)
-  request_delete(seq_idx, op_idx)
-  request_insert(seq_idx, op_idx, direction_str, primitive_name)
-  request_stock_edit()
+Wheel=zoom  Middle-drag=pan  Left=select  Right=context menu  Hover=highlight+tooltip
+Signals: segment_selected · request_delete · request_insert · request_stock_edit
 """
 
 from __future__ import annotations
@@ -28,18 +10,18 @@ from __future__ import annotations
 import math
 from typing import Optional
 
-from PySide6.QtCore import QPoint, QPointF, Qt, Signal
+from PySide6.QtCore import QEvent, QPoint, QPointF, Qt, Signal
 from PySide6.QtGui import QColor, QMouseEvent, QPainter, QResizeEvent, QWheelEvent
-from PySide6.QtWidgets import QMenu, QWidget
+from PySide6.QtWidgets import QMenu, QToolTip, QWidget
 
 from domain.machine import ChuckSide, MachineConfig
 from domain.profile import LatheProfile
 from domain.profile_segments import ArcSegment
-
 from domain.tool import Tool
 from ui.canvas_drawing import (
     draw_axis, draw_cursor, draw_limits, draw_profile, draw_stock, draw_tool,
 )
+from ui.canvas_tooltip import build_tooltip
 
 _MENU_STYLE = (
     "QMenu { background:#263238; color:#ECEFF1; border:1px solid #37474F; }"
@@ -77,6 +59,8 @@ class LatheCanvas(QWidget):
         self._selected_tag: Optional[tuple[int, int]] = None
         self._active_tool:  Optional[Tool] = None
         self._primitives: list[tuple[str, str]] = []  # (name, display_name)
+        self._model = None
+        self.setAttribute(Qt.WidgetAttribute.WA_AlwaysShowToolTips)
 
     # ------------------------------------------------------------------
     # Public API
@@ -106,6 +90,9 @@ class LatheCanvas(QWidget):
     def set_selected_tag(self, seq_idx: int, op_idx: int) -> None:
         self._selected_tag = (seq_idx, op_idx) if op_idx >= 0 else None
         self.update()
+
+    def set_model(self, model) -> None:
+        self._model = model
 
     # ------------------------------------------------------------------
     # Coordinate helpers
@@ -180,25 +167,30 @@ class LatheCanvas(QWidget):
         t = max(0.0, min(1.0, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / L2))
         return math.hypot(px - ax - t * (bx - ax), py - ay - t * (by - ay))
 
-    def _get_tag_at_pos(self, pos) -> Optional[tuple[int, int]]:
+    def _get_element_at_pos(self, pos):
+        """Return (tag, segment) nearest to *pos*, or None."""
         if self._profile is None:
             return None
         px, py = pos.x(), pos.y()
-        min_dist, best_tag = 6.0, None
+        min_dist, best = 6.0, None
         for seg in self._profile.segments():
             if seg.tag is None:
                 continue
             pts = seg.points(16) if isinstance(seg, ArcSegment) else seg.points()
             for i in range(len(pts) - 1):
-                p1  = self._w2s( pts[i][0],    pts[i][1])
-                p2  = self._w2s( pts[i+1][0],  pts[i+1][1])
-                p1m = self._w2s(-pts[i][0],    pts[i][1])
-                p2m = self._w2s(-pts[i+1][0],  pts[i+1][1])
+                p1  = self._w2s( pts[i][0],   pts[i][1])
+                p2  = self._w2s( pts[i+1][0], pts[i+1][1])
+                p1m = self._w2s(-pts[i][0],   pts[i][1])
+                p2m = self._w2s(-pts[i+1][0], pts[i+1][1])
                 for a, b in ((p1, p2), (p1m, p2m)):
                     d = self._dist_to_seg(px, py, a.x(), a.y(), b.x(), b.y())
                     if d < min_dist:
-                        min_dist, best_tag = d, seg.tag
-        return best_tag
+                        min_dist, best = d, (seg.tag, seg)
+        return best
+
+    def _get_tag_at_pos(self, pos) -> Optional[tuple[int, int]]:
+        m = self._get_element_at_pos(pos)
+        return m[0] if m else None
 
     # ------------------------------------------------------------------
     # Mouse events
@@ -246,8 +238,20 @@ class LatheCanvas(QWidget):
         super().resizeEvent(e)
 
     # ------------------------------------------------------------------
-    # Context menu
+    # Tooltip + context menu
     # ------------------------------------------------------------------
+
+    def event(self, e) -> bool:
+        if e.type() == QEvent.Type.ToolTip and self._model is not None:
+            match = self._get_element_at_pos(e.pos())
+            if match:
+                tag, seg = match
+                html = build_tooltip(self._model, tag, seg)
+                if html:
+                    QToolTip.showText(e.globalPos(), html, self)
+                    return True
+            QToolTip.hideText()
+        return super().event(e)
 
     def contextMenuEvent(self, event) -> None:
         menu = QMenu(self)

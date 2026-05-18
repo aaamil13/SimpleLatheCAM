@@ -81,6 +81,7 @@ class MainWindow(QMainWindow):
 
         # Centre — 2D canvas
         self._canvas = LatheCanvas(self)
+        self._canvas.set_model(self._model)
         if self._machine:
             self._canvas.set_machine(self._machine)
         self._canvas.set_primitives(
