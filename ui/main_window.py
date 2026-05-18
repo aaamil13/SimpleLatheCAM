@@ -54,11 +54,13 @@ class MainWindow(QMainWindow):
         machine:          Optional[MachineConfig]   = None,
         app_config:       Optional[AppConfig]       = None,
         material_library: Optional[MaterialLibrary] = None,
+        driver=None,
         parent=None,
     ) -> None:
         super().__init__(parent)
         self._machine    = machine
         self._app_config = app_config or AppConfig()
+        self._driver     = driver
         self._model      = EditorModel(
             loader, tool_library, material_library, parent=self
         )
@@ -135,6 +137,8 @@ class MainWindow(QMainWindow):
 
         tm = mb.addMenu("&Инструменти")
         tm.addAction("&Библиотека с ножове…", self._open_tool_editor, "Ctrl+T")
+        if self._driver:
+            tm.addAction("&Изпрати в LinuxCNC", self._send_to_linuxcnc, "Ctrl+L")
 
         vm = mb.addMenu("&Изглед")
         vm.addAction("&Вмести изглед", self._fit_canvas, "Ctrl+0")

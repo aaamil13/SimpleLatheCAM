@@ -2,10 +2,11 @@
 LatheCadCam — entry point.
 
 Usage:
-  python main.py [recipe.json]
+  python main.py [recipe.json] [--linuxcnc]
 
-When launched from LinuxCNC (AXIS / GMOCCAPY / QtDragon) pass the recipe
-path as the first argument so the part loads automatically.
+  --linuxcnc   Connect to a running LinuxCNC instance via the linuxcnc
+               Python module.  Has no effect when the module is not available
+               (safe to pass on development machines).
 """
 
 from __future__ import annotations
@@ -20,6 +21,7 @@ ROOT = Path(__file__).parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from bridge.linuxcnc_driver import LinuxCNCDriver
 from domain.app_config import AppConfig
 from domain.machine import MachineConfig
 from domain.material import MaterialLibrary
@@ -78,10 +80,27 @@ def _load_materials() -> MaterialLibrary:
     return lib
 
 
+def _parse_args() -> tuple[Path | None, bool]:
+    """Return (recipe_path, use_linuxcnc) from sys.argv."""
+    recipe_path: Path | None = None
+    use_linuxcnc = False
+    for arg in sys.argv[1:]:
+        if arg == "--linuxcnc":
+            use_linuxcnc = True
+        elif not arg.startswith("-"):
+            p = Path(arg)
+            if p.exists():
+                recipe_path = p
+    return recipe_path, use_linuxcnc
+
+
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("LatheCadCam")
     app.setStyle("Fusion")
+
+    recipe_path, use_linuxcnc = _parse_args()
+    driver = LinuxCNCDriver() if use_linuxcnc else None
 
     loader    = _load_plugins()
     tools     = _load_tools()
@@ -91,18 +110,17 @@ def main() -> int:
 
     win = MainWindow(
         loader=loader, tool_library=tools, machine=machine,
-        app_config=app_cfg, material_library=materials,
+        app_config=app_cfg, material_library=materials, driver=driver,
     )
 
-    # Optional: load recipe from command-line argument
-    if len(sys.argv) > 1:
-        recipe_path = Path(sys.argv[1])
-        if recipe_path.exists():
-            try:
-                win._model.load_recipe(recipe_path)
-            except Exception as e:
-                print(f"[WARN] Could not load recipe: {e}", file=sys.stderr)
+    if recipe_path:
+        try:
+            win._model.load_recipe(recipe_path)
+        except Exception as e:
+            print(f"[WARN] Could not load recipe: {e}", file=sys.stderr)
 
+    if driver and driver.available:
+        print("[INFO] LinuxCNC connection established.", file=sys.stderr)
     win.show()
     return app.exec()
 
