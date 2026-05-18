@@ -1,5 +1,5 @@
 """
-LatheCanvas — 2D cross-section view of the lathe profile.
+LatheCanvas — interactive 2D cross-section view of the lathe profile.
 
 Coordinate mapping
 ------------------
@@ -7,17 +7,20 @@ Coordinate mapping
   Screen: origin top-left; X increases rightward (= Z decreasing);
           Y increases downward (= radius decreasing)
 
-  screen_x = offset_x + (-world_z) * scale
-  screen_y = offset_y - world_r * scale
+Interactions
+------------
+  Wheel          — zoom centred on cursor
+  Middle-drag    — pan
+  Left-click     — select the nearest operation segment
+  Right-click    — context menu (delete, insert before/after, stock settings)
+  Hover          — nearest segment highlighted in orange
 
-Features
---------
-  - Stock outline (dashed grey rectangle)
-  - Profile contour (solid, 2 px)
-  - Cursor crosshair at current profile end position
-  - Machine soft-limit guides (faint red lines)
-  - Zoom with mouse wheel; pan with middle-click drag
-  - Auto-fit on first paint
+Signals emitted
+---------------
+  segment_selected(seq_idx, op_idx)
+  request_delete(seq_idx, op_idx)
+  request_insert(seq_idx, op_idx, direction_str, primitive_name)
+  request_stock_edit()
 """
 
 from __future__ import annotations
@@ -25,36 +28,31 @@ from __future__ import annotations
 import math
 from typing import Optional
 
-from PySide6.QtCore import QPoint, QPointF, QRect, Qt
-from PySide6.QtGui import (
-    QColor, QMouseEvent, QPainter, QPen, QResizeEvent, QWheelEvent,
-)
-from PySide6.QtWidgets import QWidget
+from PySide6.QtCore import QPoint, QPointF, Qt, Signal
+from PySide6.QtGui import QColor, QMouseEvent, QPainter, QResizeEvent, QWheelEvent
+from PySide6.QtWidgets import QMenu, QWidget
 
 from domain.machine import ChuckSide, MachineConfig
 from domain.profile import LatheProfile
-from domain.profile_segments import ArcSegment, LineSegment
+from domain.profile_segments import ArcSegment
 
+from ui.canvas_drawing import (
+    draw_axis, draw_cursor, draw_limits, draw_profile, draw_stock,
+)
 
-_STOCK_COLOR   = QColor("#546E7A")
-_PROFILE_COLOR = QColor("#4FC3F7")
-_CURSOR_COLOR  = QColor("#FFA726")
-_AXIS_COLOR    = QColor("#37474F")
-_LIMIT_COLOR   = QColor("#EF5350")
-
-# Semi-transparent fill colour per material category
-_MATERIAL_FILL: dict[str, QColor] = {
-    "Steel":       QColor(96,  125, 139, 80),   # blue-grey
-    "Stainless":   QColor(144, 164, 174, 80),   # lighter grey
-    "Aluminium":   QColor(128, 222, 234, 80),   # cyan
-    "Brass/Copper":QColor(255, 213, 79,  80),   # amber
-    "Cast Iron":   QColor(69,  90,  100, 80),   # dark grey
-    "Titanium":    QColor(206, 147, 216, 80),   # purple
-}
-_MATERIAL_FILL_DEFAULT = QColor(96, 125, 139, 70)
+_MENU_STYLE = (
+    "QMenu { background:#263238; color:#ECEFF1; border:1px solid #37474F; }"
+    "QMenu::item:selected { background:#37474F; }"
+    "QMenu::separator { height:1px; background:#37474F; margin:4px 0; }"
+)
 
 
 class LatheCanvas(QWidget):
+
+    segment_selected  = Signal(int, int)           # seq_idx, op_idx
+    request_delete    = Signal(int, int)            # seq_idx, op_idx
+    request_insert    = Signal(int, int, str, str)  # seq_idx, op_idx, dir, primitive
+    request_stock_edit = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -64,7 +62,7 @@ class LatheCanvas(QWidget):
         self._profile:  Optional[LatheProfile]  = None
         self._machine:  Optional[MachineConfig] = None
 
-        self._scale   = 4.0   # px per mm
+        self._scale    = 4.0
         self._offset_x = 60.0
         self._offset_y = 120.0
         self._fit_pending = True
@@ -72,7 +70,11 @@ class LatheCanvas(QWidget):
         self._pan_origin: Optional[QPoint] = None
         self._pan_ox = self._offset_x
         self._pan_oy = self._offset_y
+
         self._material_category: str = "Steel"
+        self._hovered_tag:  Optional[tuple[int, int]] = None
+        self._selected_tag: Optional[tuple[int, int]] = None
+        self._primitives: list[tuple[str, str]] = []  # (name, display_name)
 
     # ------------------------------------------------------------------
     # Public API
@@ -91,19 +93,25 @@ class LatheCanvas(QWidget):
         self._material_category = category
         self.update()
 
+    def set_primitives(self, primitives: list[tuple[str, str]]) -> None:
+        """Pass [(name, display_name), ...] from the plugin loader."""
+        self._primitives = primitives
+
+    def set_selected_tag(self, seq_idx: int, op_idx: int) -> None:
+        self._selected_tag = (seq_idx, op_idx) if op_idx >= 0 else None
+        self.update()
+
     # ------------------------------------------------------------------
     # Coordinate helpers
     # ------------------------------------------------------------------
 
     @property
     def _z_sign(self) -> float:
-        """+1 for left chuck (face on right edge), -1 for right chuck (face on left)."""
         if self._machine and self._machine.chuck_side == ChuckSide.RIGHT:
             return 1.0
-        return -1.0   # default: left chuck, Z=0 on right, negative Z to the left
+        return -1.0
 
     def _w2s(self, r: float, z: float) -> QPointF:
-        """World (r, z) → screen (px, py)."""
         return QPointF(
             self._offset_x + self._z_sign * (-z) * self._scale,
             self._offset_y - r * self._scale,
@@ -114,23 +122,21 @@ class LatheCanvas(QWidget):
             return
         stock_r = self._profile.stock_d / 2.0
         stock_l = self._profile.stock_l
-        margin  = 20  # px
-        w       = max(self.width()  - 2 * margin, 1)
-        h       = max(self.height() - 2 * margin, 1)
+        margin  = 20
+        w = max(self.width()  - 2 * margin, 1)
+        h = max(self.height() - 2 * margin, 1)
         scale_z = w / max(stock_l, 1)
         scale_r = h / max(stock_r * 2.2, 1)
         self._scale = max(min(scale_z, scale_r), 0.1)
         if self._z_sign > 0:
-            # right chuck: face (Z=0) on the left, chuck on the right
             self._offset_x = margin
         else:
-            # left chuck: face (Z=0) on the right
             self._offset_x = self.width() - margin - stock_l * self._scale
         self._offset_y = self.height() / 2.0 + stock_r * self._scale * 0.5
         self._fit_pending = False
 
     # ------------------------------------------------------------------
-    # Paint
+    # Paint — delegates to canvas_drawing helpers
     # ------------------------------------------------------------------
 
     def paintEvent(self, _) -> None:
@@ -138,123 +144,55 @@ class LatheCanvas(QWidget):
         try:
             p.setRenderHint(QPainter.RenderHint.Antialiasing)
             p.fillRect(self.rect(), QColor("#1E272E"))
-
             if self._profile is None:
                 p.setPen(QColor("#546E7A"))
-                p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter,
-                           "Няма профил")
+                p.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "Няма профил")
                 return
-
             if self._fit_pending:
                 self._fit()
-
-            self._draw_axis(p)
-            self._draw_stock(p)
+            draw_axis(p, self._profile, self._w2s, self.width())
+            draw_stock(p, self._profile, self._machine, self._material_category, self._w2s)
             if self._machine:
-                self._draw_limits(p)
-            self._draw_profile(p)
-            self._draw_cursor(p)
+                draw_limits(p, self._machine, self._w2s, self.width(), self.height())
+            draw_profile(p, self._profile, self._hovered_tag, self._selected_tag, self._w2s)
+            draw_cursor(p, self._profile, self._w2s)
         finally:
             p.end()
 
-    def _draw_axis(self, p: QPainter) -> None:
-        pen = QPen(_AXIS_COLOR, 1, Qt.PenStyle.DashLine)
-        p.setPen(pen)
-        left  = self._w2s(0, 0)
-        right = self._w2s(0, -self._profile.stock_l if self._profile else -200)
-        p.drawLine(left, QPointF(self.width(), left.y()))
+    # ------------------------------------------------------------------
+    # Hit-testing
+    # ------------------------------------------------------------------
 
-    def _draw_stock(self, p: QPainter) -> None:
+    @staticmethod
+    def _dist_to_seg(px: float, py: float, ax: float, ay: float, bx: float, by: float) -> float:
+        L2 = (bx - ax) ** 2 + (by - ay) ** 2
+        if L2 == 0:
+            return math.hypot(px - ax, py - ay)
+        t = max(0.0, min(1.0, ((px - ax) * (bx - ax) + (py - ay) * (by - ay)) / L2))
+        return math.hypot(px - ax - t * (bx - ax), py - ay - t * (by - ay))
+
+    def _get_tag_at_pos(self, pos) -> Optional[tuple[int, int]]:
         if self._profile is None:
-            return
-        sr = self._profile.stock_d / 2.0
-        sl = self._profile.stock_l
-        tl = self._w2s(sr,  0.0)
-        br = self._w2s(-sr, -sl)
-        rect = QRect(
-            int(br.x()), int(tl.y()),
-            int(tl.x() - br.x()), int(br.y() - tl.y()),
-        )
-
-        # Semi-transparent fill coloured by material category
-        fill = _MATERIAL_FILL.get(self._material_category, _MATERIAL_FILL_DEFAULT)
-        p.fillRect(rect, fill)
-
-        # Dashed outline
-        p.setPen(QPen(_STOCK_COLOR, 1, Qt.PenStyle.DashLine))
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRect(rect)
-
-        # Chuck jaw zone (red region at the clamped end)
-        if self._machine and self._machine.chuck_jaw_depth > 0:
-            jd  = self._machine.chuck_jaw_depth
-            # Chuck is at Z = -sl; jaws extend a further jd in -Z
-            j_tl = self._w2s(sr,  -sl)
-            j_br = self._w2s(-sr, -(sl + jd))
-            jaw_rect = QRect(
-                int(j_br.x()), int(j_tl.y()),
-                int(j_tl.x() - j_br.x()), int(j_br.y() - j_tl.y()),
-            )
-            p.fillRect(jaw_rect, QColor(239, 83, 80, 60))
-            p.setPen(QPen(QColor("#EF5350"), 1, Qt.PenStyle.SolidLine))
-            p.setBrush(Qt.BrushStyle.NoBrush)
-            p.drawRect(jaw_rect)
-
-    def _draw_profile(self, p: QPainter) -> None:
-        if self._profile is None:
-            return
-        pen = QPen(_PROFILE_COLOR, 2, Qt.PenStyle.SolidLine)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-        p.setPen(pen)
-
+            return None
+        px, py = pos.x(), pos.y()
+        min_dist, best_tag = 6.0, None
         for seg in self._profile.segments():
-            if isinstance(seg, LineSegment):
-                a = self._w2s(seg.x0, seg.z0)
-                b = self._w2s(seg.x1, seg.z1)
-                p.drawLine(a, b)
-                # Mirror below centreline (visual symmetry)
-                a2 = self._w2s(-seg.x0, seg.z0)
-                b2 = self._w2s(-seg.x1, seg.z1)
-                p.drawLine(a2, b2)
-            elif isinstance(seg, ArcSegment):
-                pts = seg.points(resolution=48)
-                for i in range(len(pts) - 1):
-                    a = self._w2s(pts[i][0],   pts[i][1])
-                    b = self._w2s(pts[i+1][0], pts[i+1][1])
-                    p.drawLine(a, b)
-                    a2 = self._w2s(-pts[i][0],   pts[i][1])
-                    b2 = self._w2s(-pts[i+1][0], pts[i+1][1])
-                    p.drawLine(a2, b2)
-
-    def _draw_cursor(self, p: QPainter) -> None:
-        if self._profile is None:
-            return
-        r  = self._profile._cursor_r
-        z  = self._profile.cursor_z
-        pt = self._w2s(r, z)
-        pen = QPen(_CURSOR_COLOR, 1, Qt.PenStyle.SolidLine)
-        p.setPen(pen)
-        size = 8
-        p.drawLine(int(pt.x()) - size, int(pt.y()),
-                   int(pt.x()) + size, int(pt.y()))
-        p.drawLine(int(pt.x()), int(pt.y()) - size,
-                   int(pt.x()), int(pt.y()) + size)
-
-    def _draw_limits(self, p: QPainter) -> None:
-        if self._machine is None:
-            return
-        lim = self._machine.limits
-        pen = QPen(_LIMIT_COLOR, 1, Qt.PenStyle.DotLine)
-        p.setPen(pen)
-        # X max (radial limit)
-        pt_top = self._w2s(lim.x_max, 0)
-        p.drawLine(0, int(pt_top.y()), self.width(), int(pt_top.y()))
-        # Z min (axial limit)
-        pt_z = self._w2s(0, lim.z_min)
-        p.drawLine(int(pt_z.x()), 0, int(pt_z.x()), self.height())
+            if seg.tag is None:
+                continue
+            pts = seg.points(16) if isinstance(seg, ArcSegment) else seg.points()
+            for i in range(len(pts) - 1):
+                p1  = self._w2s( pts[i][0],    pts[i][1])
+                p2  = self._w2s( pts[i+1][0],  pts[i+1][1])
+                p1m = self._w2s(-pts[i][0],    pts[i][1])
+                p2m = self._w2s(-pts[i+1][0],  pts[i+1][1])
+                for a, b in ((p1, p2), (p1m, p2m)):
+                    d = self._dist_to_seg(px, py, a.x(), a.y(), b.x(), b.y())
+                    if d < min_dist:
+                        min_dist, best_tag = d, seg.tag
+        return best_tag
 
     # ------------------------------------------------------------------
-    # Zoom / pan
+    # Mouse events
     # ------------------------------------------------------------------
 
     def wheelEvent(self, e: QWheelEvent) -> None:
@@ -270,6 +208,12 @@ class LatheCanvas(QWidget):
             self._pan_origin = e.pos()
             self._pan_ox = self._offset_x
             self._pan_oy = self._offset_y
+        elif e.button() == Qt.MouseButton.LeftButton:
+            tag = self._get_tag_at_pos(e.pos())
+            if tag is not None:
+                self._selected_tag = tag
+                self.segment_selected.emit(*tag)
+                self.update()
 
     def mouseMoveEvent(self, e: QMouseEvent) -> None:
         if self._pan_origin is not None:
@@ -278,6 +222,11 @@ class LatheCanvas(QWidget):
             self._offset_x = self._pan_ox + dx
             self._offset_y = self._pan_oy + dy
             self.update()
+        else:
+            tag = self._get_tag_at_pos(e.pos())
+            if tag != self._hovered_tag:
+                self._hovered_tag = tag
+                self.update()
 
     def mouseReleaseEvent(self, e: QMouseEvent) -> None:
         if e.button() == Qt.MouseButton.MiddleButton:
@@ -286,3 +235,39 @@ class LatheCanvas(QWidget):
     def resizeEvent(self, e: QResizeEvent) -> None:
         self._fit_pending = True
         super().resizeEvent(e)
+
+    # ------------------------------------------------------------------
+    # Context menu
+    # ------------------------------------------------------------------
+
+    def contextMenuEvent(self, event) -> None:
+        menu = QMenu(self)
+        menu.setStyleSheet(_MENU_STYLE)
+        tag = self._get_tag_at_pos(event.pos())
+        if tag is not None:
+            self._selected_tag = tag
+            self.segment_selected.emit(*tag)
+            self.update()
+            si, oi = tag
+            menu.addAction("Изтрий операцията").triggered.connect(
+                lambda: self.request_delete.emit(si, oi)
+            )
+            menu.addSeparator()
+            self._fill_insert_menu(menu.addMenu("Вмъкни преди…"), si, oi)
+            self._fill_insert_menu(menu.addMenu("Вмъкни след…"),  si, oi + 1)
+            menu.addSeparator()
+        menu.addAction("Заготовка / Материал…").triggered.connect(
+            self.request_stock_edit.emit
+        )
+        menu.exec(event.globalPos())
+
+    def _fill_insert_menu(self, parent: QMenu, si: int, target_oi: int) -> None:
+        m_ext = parent.addMenu("Външно")
+        m_int = parent.addMenu("Вътрешно")
+        for name, display in self._primitives:
+            m_ext.addAction(display).triggered.connect(
+                lambda _, n=name: self.request_insert.emit(si, target_oi, "external", n)
+            )
+            m_int.addAction(display).triggered.connect(
+                lambda _, n=name: self.request_insert.emit(si, target_oi, "internal", n)
+            )

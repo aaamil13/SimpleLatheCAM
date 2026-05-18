@@ -222,11 +222,34 @@ class EditorModel(QObject):
         self.recipe_changed.emit()
         self.selection_changed.emit(sel_seq, sel_op)
 
+    def insert_at(
+        self,
+        seq_idx: int,
+        op_idx: int,
+        primitive_name: str,
+        direction: ToolDirection,
+    ) -> None:
+        """Insert a new operation at an absolute position (used by canvas context menu)."""
+        plugin = self._loader.get(primitive_name)
+        if plugin is None:
+            self.error_occurred.emit(f"Unknown primitive: {primitive_name}")
+            return
+        op = OperationRecord(
+            primitive_name=primitive_name,
+            params=plugin.default_params(),
+            direction=direction,
+        )
+        if seq_idx >= len(self._recipe.tool_sequences):
+            return
+        self._recipe.tool_sequences[seq_idx].operations.insert(op_idx, op)
+        self._mutated(seq_idx, op_idx)
+
     def _rebuild(self) -> LatheProfile:
         stock = self._recipe.stock
         profile = LatheProfile(stock_d=stock.diameter, stock_l=stock.length)
-        for seq in self._recipe.tool_sequences:
-            for op in seq.enabled_operations:
+        for si, seq in enumerate(self._recipe.tool_sequences):
+            for oi, op in enumerate(seq.enabled_operations):
+                profile.active_tag = (si, oi)
                 plugin = self._loader.get(op.primitive_name)
                 if plugin is None:
                     continue

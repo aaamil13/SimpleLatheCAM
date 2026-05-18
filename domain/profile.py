@@ -37,6 +37,7 @@ class LatheProfile:
         self._segments: list[Segment] = []
         self._cursor_r: float = stock_d / 2.0   # internal: radius
         self._cursor_z: float = 0.0
+        self.active_tag: tuple[int, int] | None = None  # set by EditorModel._rebuild
 
     # ------------------------------------------------------------------
     # Cursor (diameter-facing public API)
@@ -50,6 +51,11 @@ class LatheProfile:
     @cursor_x.setter
     def cursor_x(self, diameter: float) -> None:
         self._cursor_r = diameter / 2.0
+
+    @property
+    def cursor_r(self) -> float:
+        """Current radius (mm)."""
+        return self._cursor_r
 
     @property
     def cursor_z(self) -> float:
@@ -81,9 +87,9 @@ class LatheProfile:
         z0 = self._cursor_z
         z1 = z0 - length
         if not math.isclose(r, self._cursor_r, abs_tol=1e-6):
-            self._segments.append(LineSegment(self._cursor_r, z0, r, z0))
+            self._segments.append(LineSegment(self._cursor_r, z0, r, z0, tag=self.active_tag))
             self._cursor_r = r
-        self._segments.append(LineSegment(r, z0, r, z1))
+        self._segments.append(LineSegment(r, z0, r, z1, tag=self.active_tag))
         self._cursor_z = z1
 
     def add_taper(self, d_end: float, length: float) -> None:
@@ -91,7 +97,7 @@ class LatheProfile:
         r_end = d_end / 2.0
         z0    = self._cursor_z
         z1    = z0 - length
-        self._segments.append(LineSegment(self._cursor_r, z0, r_end, z1))
+        self._segments.append(LineSegment(self._cursor_r, z0, r_end, z1, tag=self.active_tag))
         self._cursor_r = r_end
         self._cursor_z = z1
 
@@ -135,13 +141,15 @@ class LatheProfile:
         x_end   = cx + radius * (-nx)
         z_end   = cz + radius * (-nz)
 
-        self._segments[-1] = LineSegment(prev.x0, prev.z0, x_start, z_start)
+        # Trim previous segment, preserving its operation tag
+        self._segments[-1] = LineSegment(prev.x0, prev.z0, x_start, z_start, tag=prev.tag)
         self._segments.append(ArcSegment(
             x0=x_start, z0=z_start,
             x1=x_end,   z1=z_end,
             cx=cx, cz=cz,
             radius=radius,
             direction=direction,
+            tag=self.active_tag,
         ))
         self._cursor_r = x_end
         self._cursor_z = z_end
@@ -149,7 +157,7 @@ class LatheProfile:
     def add_line_to(self, d: float, z: float) -> None:
         """Absolute line move to diameter *d* at axial position *z*."""
         r = d / 2.0
-        self._segments.append(LineSegment(self._cursor_r, self._cursor_z, r, z))
+        self._segments.append(LineSegment(self._cursor_r, self._cursor_z, r, z, tag=self.active_tag))
         self._cursor_r = r
         self._cursor_z = z
 
@@ -158,9 +166,9 @@ class LatheProfile:
         Advances Z by *depth* if given."""
         z0 = self._cursor_z
         z1 = z0 - depth if depth > 0 else z0
-        self._segments.append(LineSegment(self._cursor_r, z0, 0.0, z0))
+        self._segments.append(LineSegment(self._cursor_r, z0, 0.0, z0, tag=self.active_tag))
         if not math.isclose(z0, z1, abs_tol=1e-6):
-            self._segments.append(LineSegment(0.0, z0, 0.0, z1))
+            self._segments.append(LineSegment(0.0, z0, 0.0, z1, tag=self.active_tag))
         self._cursor_r = 0.0
         self._cursor_z = z1
 

@@ -28,6 +28,7 @@ class LineSegment:
     z0: float
     x1: float   # radius
     z1: float
+    tag: tuple[int, int] | None = None  # (seq_idx, op_idx) set by EditorModel
 
     @property
     def length(self) -> float:
@@ -52,6 +53,7 @@ class ArcSegment:
     cz: float       # arc centre, Z coordinate
     radius: float
     direction: ArcDirection
+    tag: tuple[int, int] | None = None  # (seq_idx, op_idx) set by EditorModel
 
     @property
     def angle_start(self) -> float:

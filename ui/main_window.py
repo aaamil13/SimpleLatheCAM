@@ -35,6 +35,7 @@ from domain.app_config import AppConfig
 from domain.machine import MachineConfig
 from domain.material import MaterialLibrary
 from domain.plugin_loader import PrimitivePluginLoader
+from domain.tool import ToolDirection
 from domain.tool_library import ToolLibrary
 from ui.action_toolbar import ActionToolbar
 from ui.canvas_2d import LatheCanvas
@@ -91,6 +92,9 @@ class MainWindow(QMainWindow):
         self._canvas = LatheCanvas(self)
         if self._machine:
             self._canvas.set_machine(self._machine)
+        self._canvas.set_primitives(
+            [(p.name, p.display_name) for p in self._model.loader.all()]
+        )
         splitter.addWidget(self._canvas)
 
         # Right — steps panel (accordion)
@@ -157,6 +161,12 @@ class MainWindow(QMainWindow):
         self._toolbar.action_save_as.connect(self._save_recipe_as)
         self._toolbar.action_export.connect(self._export_gcode)
         self._toolbar.action_fit.connect(self._fit_canvas)
+
+        self._canvas.segment_selected.connect(self._model.select)
+        self._canvas.request_delete.connect(self._handle_canvas_delete)
+        self._canvas.request_insert.connect(self._handle_canvas_insert)
+        self._canvas.request_stock_edit.connect(self._open_stock_panel)
+        self._model.selection_changed.connect(self._sync_canvas_selection)
 
     # ------------------------------------------------------------------
     # Slots
@@ -245,6 +255,25 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"G-код записан: {path}", 4000)
         except Exception as e:
             QMessageBox.critical(self, "Грешка при генериране", str(e))
+
+    def _sync_canvas_selection(self, seq_idx: int, op_idx: int) -> None:
+        self._canvas.set_selected_tag(seq_idx, op_idx)
+
+    def _handle_canvas_delete(self, seq_idx: int, op_idx: int) -> None:
+        self._model.select(seq_idx, op_idx)
+        self._model.remove_selected()
+
+    def _handle_canvas_insert(
+        self, seq_idx: int, op_idx: int, direction_str: str, primitive_name: str
+    ) -> None:
+        direction = (
+            ToolDirection.EXTERNAL if direction_str == "external"
+            else ToolDirection.INTERNAL
+        )
+        self._model.insert_at(seq_idx, op_idx, primitive_name, direction)
+
+    def _open_stock_panel(self) -> None:
+        pass  # TODO: scroll StepsPanel to the StockPanel widget
 
     def _open_tool_editor(self) -> None:
         dlg = ToolEditor(
