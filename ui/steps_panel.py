@@ -31,10 +31,65 @@ from PySide6.QtWidgets import (
 from domain.app_config import AppConfig
 from domain.machine import MachineConfig
 from domain.recipe import OperationRecord, ToolSequence
+from domain.profile import LatheProfile
 from ui.editor_model import EditorModel
 from ui.mini_canvas import MiniProfileView
 from ui.operation_edit_dialog import OperationEditDialog
-from ui.stock_panel import StockPanel
+from ui.stock_panel import StockEditDialog
+
+
+# ---------------------------------------------------------------------------
+# Stock card — always first in the list
+# ---------------------------------------------------------------------------
+
+class StockCard(QFrame):
+    """Compact card showing raw stock dimensions; ⚙ opens StockEditDialog."""
+
+    def __init__(self, model: EditorModel, parent=None) -> None:
+        super().__init__(parent)
+        self._model = model
+        self.setFrameShape(QFrame.Shape.StyledPanel)
+        self.setObjectName("StockCard")
+        self.setStyleSheet(
+            "#StockCard { background:#1E272E; border:1.5px solid #FFB74D;"
+            " border-radius:3px; }"
+        )
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(6, 4, 4, 3)
+        outer.setSpacing(2)
+
+        row = QHBoxLayout()
+        row.setSpacing(4)
+        self._lbl = QLabel()
+        self._lbl.setTextFormat(Qt.TextFormat.RichText)
+        self._lbl.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        row.addWidget(self._lbl)
+
+        btn = QToolButton()
+        btn.setText("⚙")
+        btn.setToolTip("Настройка на заготовката")
+        btn.setFixedSize(24, 24)
+        btn.clicked.connect(self._open_edit)
+        row.addWidget(btn)
+        outer.addLayout(row)
+
+        self._mini = MiniProfileView(self)
+        outer.addWidget(self._mini)
+
+        self._refresh()
+        model.recipe_changed.connect(self._refresh)
+
+    def _refresh(self) -> None:
+        s = self._model.recipe.stock
+        self._lbl.setText(
+            f"<b>Заготовка</b>  "
+            f"<span style='color:#FFB74D'>⌀{s.diameter:.1f} × {s.length:.1f} mm</span>"
+        )
+        blank = LatheProfile(stock_d=s.diameter, stock_l=s.length)
+        self._mini.set_profile(blank)
+
+    def _open_edit(self) -> None:
+        StockEditDialog(self._model, self).exec()
 
 
 # ---------------------------------------------------------------------------
@@ -195,8 +250,8 @@ class StepsPanel(QWidget):
         self._layout.setSpacing(2)
         scroll.setWidget(self._inner)
 
-        # Stock panel is permanent — kept across rebuilds
-        self._stock_panel = StockPanel(model, self._inner)
+        # StockCard is permanent — kept across rebuilds
+        self._stock_card = StockCard(model, self._inner)
 
         model.recipe_changed.connect(self._rebuild)
         model.selection_changed.connect(self._highlight)
@@ -209,10 +264,10 @@ class StepsPanel(QWidget):
         while self._layout.count():
             item = self._layout.takeAt(0)
             w = item.widget()
-            if w and w is not self._stock_panel:
+            if w and w is not self._stock_card:
                 w.deleteLater()
 
-        self._layout.addWidget(self._stock_panel)
+        self._layout.addWidget(self._stock_card)
         for si, seq in enumerate(self._model.recipe.tool_sequences):
             self._layout.addWidget(_seq_header(seq))
             for oi, op in enumerate(seq.operations):

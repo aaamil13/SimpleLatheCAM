@@ -20,7 +20,10 @@
       "Bash(Measure-Object -Line)",
       "PowerShell(\\(Get-Content \"d:\\\\Dev\\\\EMC2\\\\LatheCadCam\\\\cam\\\\gcode_writer.py\" | Measure-Object -Line\\).Lines)",
       "PowerShell(\\(Get-Content \"d:\\\\Dev\\\\EMC2\\\\LatheCadCam\\\\ui\\\\main_window.py\" | Measure-Object -Line\\).Lines; \\(Get-Content \"d:\\\\Dev\\\\EMC2\\\\LatheCadCam\\\\main.py\" | Measure-Object -Line\\).Lines)",
-      "PowerShell(cd d:\\\\Dev\\\\EMC2\\\\LatheCadCam; \\(Get-Content \"ui\\\\steps_panel.py\" | Measure-Object -Line\\).Lines; \\(Get-Content \"ui\\\\editor_model.py\" | Measure-Object -Line\\).Lines; \\(Get-Content \"ui\\\\mini_canvas.py\" | Measure-Object -Line\\).Lines)"
+      "PowerShell(cd d:\\\\Dev\\\\EMC2\\\\LatheCadCam; \\(Get-Content \"ui\\\\steps_panel.py\" | Measure-Object -Line\\).Lines; \\(Get-Content \"ui\\\\editor_model.py\" | Measure-Object -Line\\).Lines; \\(Get-Content \"ui\\\\mini_canvas.py\" | Measure-Object -Line\\).Lines)",
+      "PowerShell(cd d:\\\\Dev\\\\EMC2\\\\LatheCadCam; \\(Get-Content \"ui\\\\steps_panel.py\" | Measure-Object -Line\\).Lines; \\(Get-Content \"ui\\\\stock_panel.py\" | Measure-Object -Line\\).Lines; \\(Get-Content \"ui\\\\main_window.py\" | Measure-Object -Line\\).Lines)",
+      "Bash(Get-Content \"d:\\\\Dev\\\\EMC2\\\\LatheCadCam\\\\ui\\\\main_window.py\")",
+      "PowerShell(\\(Get-Content \"d:\\\\Dev\\\\EMC2\\\\LatheCadCam\\\\ui\\\\main_window.py\"\\).Count)"
     ]
   }
 }

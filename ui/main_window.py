@@ -1,17 +1,4 @@
-"""
-MainWindow — top-level PySide6 window for the LatheCadCam editor.
-
-Layout
-------
-  [ActionToolbar — top]
-  ┌────────────────────────────────────────────────────┐
-  │ LeftSidebar (left) │ LatheCanvas (centre) │ StepsPanel (right) │
-  └────────────────────────────────────────────────────┘
-  [StatusBar — bottom]
-
-LeftSidebar tabs: Примитиви (icon grid) · Операции (tree)
-StepsPanel: accordion step cards with per-operation edit dialogs
-"""
+"""MainWindow — top-level PySide6 window for the LatheCadCam editor."""
 
 from __future__ import annotations
 
@@ -39,6 +26,7 @@ from domain.tool import ToolDirection
 from domain.tool_library import ToolLibrary
 from ui.action_toolbar import ActionToolbar
 from ui.canvas_2d import LatheCanvas
+from ui.canvas_3d import Canvas3D
 from ui.editor_model import EditorModel
 from ui.left_sidebar import LeftSidebar
 from ui.steps_panel import StepsPanel
@@ -64,8 +52,9 @@ class MainWindow(QMainWindow):
         self._model      = EditorModel(
             loader, tool_library, material_library, parent=self
         )
-        self._recipe_path:      Optional[Path] = None
+        self._recipe_path:       Optional[Path] = None
         self._tool_library_path: Optional[Path] = None
+        self._canvas3d:          Optional[Canvas3D] = None
 
         self.setWindowTitle("LatheCadCam")
         self.resize(1400, 800)
@@ -161,6 +150,7 @@ class MainWindow(QMainWindow):
         self._toolbar.action_save_as.connect(self._save_recipe_as)
         self._toolbar.action_export.connect(self._export_gcode)
         self._toolbar.action_fit.connect(self._fit_canvas)
+        self._toolbar.action_3d.connect(self._show_3d_view)
 
         self._canvas.segment_selected.connect(self._model.select)
         self._canvas.request_delete.connect(self._handle_canvas_delete)
@@ -189,6 +179,8 @@ class MainWindow(QMainWindow):
             t = seqs[sel].tool_id
             self._status_tool.setText(f"T{t:02d}")
             self._canvas.set_active_tool(self._model.tool_library.get_by_id(t))
+        if self._canvas3d and self._canvas3d.isVisible():
+            self._canvas3d.update_3d_model(profile)
 
     def _on_selection_changed(self, si: int, oi: int) -> None:
         seqs, sel = self._model.recipe.tool_sequences, max(si, 0)
@@ -201,6 +193,12 @@ class MainWindow(QMainWindow):
     def _fit_canvas(self) -> None:
         self._canvas._fit_pending = True
         self._canvas.update()
+
+    def _show_3d_view(self) -> None:
+        if self._canvas3d is None:
+            self._canvas3d = Canvas3D()
+        self._canvas3d.update_3d_model(self._model.profile)
+        self._canvas3d.show_window()
 
     # ------------------------------------------------------------------
     # File actions
@@ -277,7 +275,9 @@ class MainWindow(QMainWindow):
         )
         self._model.insert_at(seq_idx, op_idx, primitive_name, direction)
 
-    def _open_stock_panel(self) -> None: pass  # TODO: scroll to StockPanel
+    def _open_stock_panel(self) -> None:
+        from ui.stock_panel import StockEditDialog
+        StockEditDialog(self._model, self).exec()
 
     def _open_tool_editor(self) -> None:
         dlg = ToolEditor(

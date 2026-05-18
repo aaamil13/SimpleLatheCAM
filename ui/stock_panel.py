@@ -11,12 +11,29 @@ from __future__ import annotations
 
 from PySide6.QtWidgets import (
     QComboBox,
+    QDialog,
+    QDialogButtonBox,
     QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
+    QVBoxLayout,
 )
 
 from ui.editor_model import EditorModel
+
+
+class StockEditDialog(QDialog):
+    """Modal dialog wrapping StockPanel — used by StockCard and canvas context menu."""
+
+    def __init__(self, model: "EditorModel", parent=None) -> None:
+        super().__init__(parent)
+        self.setWindowTitle("Заготовка / Материал")
+        self.setMinimumWidth(300)
+        layout = QVBoxLayout(self)
+        layout.addWidget(StockPanel(model, self))
+        btns = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        btns.rejected.connect(self.reject)
+        layout.addWidget(btns)
 
 
 class StockPanel(QGroupBox):

@@ -11,6 +11,7 @@ Signals
   action_save_as
   action_export
   action_fit
+  action_3d
 """
 
 from __future__ import annotations
@@ -26,6 +27,7 @@ class ActionToolbar(QToolBar):
     action_save_as = Signal()
     action_export  = Signal()
     action_fit     = Signal()
+    action_3d      = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__("Действия", parent)
@@ -39,6 +41,8 @@ class ActionToolbar(QToolBar):
         self._add("Експорт G-код…","Ctrl+E",          self.action_export)
         self.addSeparator()
         self._add("Вмести изглед", "Ctrl+0",          self.action_fit)
+        self.addSeparator()
+        self._add("3D изглед",     "Ctrl+3",          self.action_3d)
 
         self.setStyleSheet("""
             QToolBar {

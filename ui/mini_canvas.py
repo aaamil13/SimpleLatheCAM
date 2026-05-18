@@ -12,8 +12,8 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import Qt, QRectF
-from PySide6.QtGui import QColor, QPainter, QPen, QPointF
+from PySide6.QtCore import Qt, QPointF, QRectF
+from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import QWidget
 
 from domain.profile import LatheProfile
