@@ -178,22 +178,26 @@ class MainWindow(QMainWindow):
     def _on_recipe_changed(self) -> None:
         profile = self._model.profile
         self._canvas.set_profile(profile)
-
-        # Update canvas material colour
         mat_key = self._model.recipe.stock.material_key
         mat     = self._model.material_library.get(mat_key)
         self._canvas.set_material_category(mat.category if mat else "Steel")
-
         self._status_cursor.setText(
             f"X: {profile.cursor_x:.2f} mm   Z: {profile.cursor_z:.2f} mm"
         )
         seqs = self._model.recipe.tool_sequences
-        if seqs:
-            t = seqs[max(self._model.selected_seq, 0)].tool_id
+        sel  = max(self._model.selected_seq, 0)
+        if seqs and sel < len(seqs):
+            t = seqs[sel].tool_id
             self._status_tool.setText(f"T{t:02d}")
+            self._canvas.set_active_tool(self._model.tool_library.get_by_id(t))
 
-    def _on_selection_changed(self, seq_idx: int, op_idx: int) -> None:
-        pass  # StepsPanel listens to model.selection_changed directly
+    def _on_selection_changed(self, si: int, oi: int) -> None:
+        seqs = self._model.recipe.tool_sequences
+        sel  = max(si, 0)
+        if seqs and sel < len(seqs):
+            self._canvas.set_active_tool(
+                self._model.tool_library.get_by_id(seqs[sel].tool_id)
+            )
 
     def _show_error(self, msg: str) -> None:
         self._status_err.setText(msg)

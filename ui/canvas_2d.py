@@ -36,8 +36,9 @@ from domain.machine import ChuckSide, MachineConfig
 from domain.profile import LatheProfile
 from domain.profile_segments import ArcSegment
 
+from domain.tool import Tool
 from ui.canvas_drawing import (
-    draw_axis, draw_cursor, draw_limits, draw_profile, draw_stock,
+    draw_axis, draw_cursor, draw_limits, draw_profile, draw_stock, draw_tool,
 )
 
 _MENU_STYLE = (
@@ -74,6 +75,7 @@ class LatheCanvas(QWidget):
         self._material_category: str = "Steel"
         self._hovered_tag:  Optional[tuple[int, int]] = None
         self._selected_tag: Optional[tuple[int, int]] = None
+        self._active_tool:  Optional[Tool] = None
         self._primitives: list[tuple[str, str]] = []  # (name, display_name)
 
     # ------------------------------------------------------------------
@@ -96,6 +98,10 @@ class LatheCanvas(QWidget):
     def set_primitives(self, primitives: list[tuple[str, str]]) -> None:
         """Pass [(name, display_name), ...] from the plugin loader."""
         self._primitives = primitives
+
+    def set_active_tool(self, tool: Optional[Tool]) -> None:
+        self._active_tool = tool
+        self.update()
 
     def set_selected_tag(self, seq_idx: int, op_idx: int) -> None:
         self._selected_tag = (seq_idx, op_idx) if op_idx >= 0 else None
@@ -156,6 +162,9 @@ class LatheCanvas(QWidget):
                 draw_limits(p, self._machine, self._w2s, self.width(), self.height())
             draw_profile(p, self._profile, self._hovered_tag, self._selected_tag, self._w2s)
             draw_cursor(p, self._profile, self._w2s)
+            if self._active_tool is not None:
+                tip = self._w2s(self._profile.cursor_r, self._profile.cursor_z)
+                draw_tool(p, self._active_tool, tip, self._scale)
         finally:
             p.end()
 
