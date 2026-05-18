@@ -7,7 +7,6 @@ Inputs
   profile       : LatheProfile already built from the recipe operations
   tool_library  : ToolLibrary to look up cutting data
   machine       : MachineConfig for safe positions, RPM cap, etc.
-  plugin_loader : PrimitivePluginLoader to re-execute parting chip-break logic
 
 Output
 ------
@@ -31,19 +30,18 @@ Program structure
 
 from __future__ import annotations
 
-import json
-from dataclasses import dataclass, field
-from pathlib import Path
+from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from cam.finishing import FinishingPass
+from cam.operator_msg import MessageCatalogue
+from cam.parting import parting_lines
 from cam.roughing import ExternalRougher, RoughingPass
 from domain.app_config import AppConfig
 from domain.tool import SpindleMode, ToolDirection
 
 if TYPE_CHECKING:
     from domain.machine import MachineConfig
-    from domain.plugin_loader import PrimitivePluginLoader
     from domain.profile import LatheProfile
     from domain.recipe import OperationRecord, PartRecipe
     from domain.tool_library import ToolLibrary
@@ -66,20 +64,16 @@ def _fmt(v: float) -> str:
     return f"{v:.3f}"
 
 
-def _r(diameter: float) -> float:
-    return diameter / 2.0
-
-
 # ---------------------------------------------------------------------------
 
 @dataclass
 class WriterConfig:
     """Tunable parameters for the G-code writer."""
-    arc_resolution:    int   = 32      # points per arc when approximating
-    step_down:         float = 1.0     # roughing radial depth per pass (mm)
-    finish_allowance:  float = 0.3     # radial stock left for finishing (mm)
-    approach_clearance: float = 2.0    # Z clearance above part start (mm)
-    default_feed_rough: float = 150.0  # mm/min if no tool data
+    arc_resolution:     int   = 32
+    step_down:          float = 1.0
+    finish_allowance:   float = 0.3
+    approach_clearance: float = 2.0
+    default_feed_rough: float = 150.0
     default_feed_finish: float = 100.0
 
 
@@ -87,35 +81,34 @@ class GCodeWriter:
 
     def __init__(
         self,
-        recipe:     "PartRecipe",
-        profile:    "LatheProfile",
+        recipe:       "PartRecipe",
+        profile:      "LatheProfile",
         tool_library: "ToolLibrary",
-        machine:    "MachineConfig | None" = None,
-        config:     WriterConfig | None    = None,
-        app_config: AppConfig | None       = None,
+        machine:      "MachineConfig | None" = None,
+        config:       WriterConfig | None    = None,
+        app_config:   AppConfig | None       = None,
     ) -> None:
-        self._recipe     = recipe
-        self._profile    = profile
-        self._tools      = tool_library
-        self._machine    = machine
-        self._cfg        = config or WriterConfig()
-        self._app_config = app_config or AppConfig()
-        self._messages:  list[dict] = []   # collected per generate() call
+        self._recipe   = recipe
+        self._profile  = profile
+        self._tools    = tool_library
+        self._machine  = machine
+        self._cfg      = config or WriterConfig()
+        self._catalogue = MessageCatalogue(app_config or AppConfig())
 
     # ------------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------------
 
     def generate(self) -> str:
-        self._messages = []
+        self._catalogue.reset()
         lines = self._build_lines()
-        self._flush_messages()
+        self._catalogue.flush()
         return "\n".join(lines)
 
     def generate_lines(self) -> list[str]:
-        self._messages = []
+        self._catalogue.reset()
         lines = self._build_lines()
-        self._flush_messages()
+        self._catalogue.flush()
         return lines
 
     # ------------------------------------------------------------------
@@ -130,14 +123,14 @@ class GCodeWriter:
         stock   = self._recipe.stock
         stock_r = stock.diameter / 2.0
 
-        safe_x_r  = stock_r + 5.0   # radial clearance default
-        safe_z_tc = 50.0             # Z tool-change default
+        safe_x_r  = stock_r + 5.0
+        safe_z_tc = 50.0
         x_tc_r    = stock_r + 10.0
         x_home_r  = stock_r + 10.0
         z_home    = 50.0
 
         if self._machine:
-            sp = self._machine.safe          # SafePositions field
+            sp        = self._machine.safe
             safe_x_r  = sp.x_clearance
             safe_z_tc = sp.z_tool_change
             x_tc_r    = sp.x_tool_change
@@ -160,79 +153,44 @@ class GCodeWriter:
         return lines
 
     def _sequence_block(
-        self,
-        seq,
-        stock_r: float,
-        safe_x_r: float,
-        safe_z_tc: float,
-        x_tc_r: float,
-        x_home_r: float,
-        z_home: float,
+        self, seq, stock_r, safe_x_r, safe_z_tc, x_tc_r, x_home_r, z_home
     ) -> list[str]:
         lines: list[str] = []
-        tool = self._tools.get_by_id(seq.tool_id)
+        tool   = self._tools.get_by_id(seq.tool_id)
         nose_r = tool.insert.nose_radius if tool else 0.4
 
-        # -- tool change rapid -------------------------------------------
         lines.append(f"(--- Tool {seq.tool_id} ---)")
         lines.append(f"G0 X{_fmt(x_tc_r * 2.0)} Z{_fmt(safe_z_tc)}")
         lines.append(f"T{seq.tool_id:02d} M6")
-
-        # -- spindle setup -----------------------------------------------
         lines.extend(self._spindle_lines(seq, stock_r))
 
-        # -- coolant -----------------------------------------------------
         if seq.coolant_on:
             lines.append("M8")
 
-        # -- operator messages / manual ops at start of sequence ---------
+        cap = self._machine.cap_rpm if self._machine else None
         for op in seq.operations:
             if not op.enabled:
                 continue
             if op.primitive_name == "operator_message":
-                lines.extend(self._operator_message_lines(op))
+                lines.extend(self._catalogue.operator_message_lines(op))
             elif op.primitive_name == "manual_spindle":
-                lines.extend(self._manual_spindle_lines(op, seq.max_rpm))
+                lines.extend(
+                    self._catalogue.manual_spindle_lines(op, cap, seq.max_rpm)
+                )
 
-        # -- determine feed rates ----------------------------------------
-        mat_key  = self._recipe.stock.material_key
-        feed_r   = self._cfg.default_feed_rough
-        feed_f   = self._cfg.default_feed_finish
-        if tool:
-            cd = tool.best_data(mat_key)
-            if cd:
-                d_est    = stock_r * 2.0 * 0.75  # rough estimate mid-diameter
-                rpm_est  = cd.rpm_for_diameter(d_est) if d_est > 0 else 1000
-                feed_r   = round(cd.fn_rec * rpm_est, 0)
-                feed_f   = round(cd.fn_rec * rpm_est * 0.8, 0)
+        feed_r, feed_f = self._feed_rates(seq, stock_r, tool)
 
-        # -- roughing passes ---------------------------------------------
         _SKIP = {"parting", "rapid_to", "operator_message", "manual_spindle"}
         has_machining = any(
-            op.enabled for op in seq.operations
-            if op.primitive_name not in _SKIP
+            op.enabled for op in seq.operations if op.primitive_name not in _SKIP
         )
-        has_roughing = has_machining
-        if has_roughing:
-            rougher = ExternalRougher(
-                profile=self._profile,
-                stock_r=stock_r,
-                stock_l=self._recipe.stock.length,
-                step_down=self._cfg.step_down,
-                feed_rate=feed_r,
-                finish_allowance=self._cfg.finish_allowance,
-                nose_radius=nose_r,
-            )
-            passes = rougher.generate()
-            if passes:
-                lines.append("(--- roughing ---)")
-                lines.extend(self._roughing_lines(passes, safe_x_r))
 
-        # -- finishing pass (only when there is actual machining geometry) --
+        if has_machining:
+            lines.extend(self._roughing_block(stock_r, nose_r, feed_r, safe_x_r))
+
         if has_machining:
             direction = seq.operations[0].direction if seq.operations else ToolDirection.EXTERNAL
-            internal  = direction == ToolDirection.INTERNAL
-
+            internal  = (direction == ToolDirection.INTERNAL)
             fin = FinishingPass(
                 profile=self._profile,
                 feed_rate=feed_f,
@@ -241,149 +199,68 @@ class GCodeWriter:
                 approach_z=self._cfg.approach_clearance,
                 approach_r=safe_x_r,
                 retract_r=safe_x_r,
+                nose_radius=nose_r,
             )
             lines.append("(--- finishing ---)")
             lines.extend(fin.lines())
 
-        # -- parting special handling ------------------------------------
         for op in seq.operations:
             if op.enabled and op.primitive_name == "parting":
                 lines.append("(--- parting ---)")
-                lines.extend(self._parting_lines(op.params, self._profile.cursor_x / 2.0,
-                                                  feed_r, safe_x_r))
+                lines.extend(
+                    parting_lines(op.params, self._profile.cursor_x / 2.0,
+                                  feed_r, safe_x_r)
+                )
                 break
 
-        # -- coolant off + retract ---------------------------------------
         if seq.coolant_on:
             lines.append("M9")
         lines.append(f"G0 X{_fmt(safe_x_r * 2.0)}")
         return lines
 
     def _spindle_lines(self, seq, stock_r: float) -> list[str]:
-        lines: list[str] = []
         max_rpm = seq.max_rpm
         if self._machine:
             max_rpm = self._machine.cap_rpm(max_rpm)
-
         if seq.spindle_mode == SpindleMode.CSS:
-            lines.append(f"G96 S{seq.spindle_value:.0f} D{max_rpm} M3"
-                         "  (CSS m/min)")
-        else:
-            rpm = min(seq.spindle_value, max_rpm)
-            lines.append(f"G97 S{rpm:.0f} M3  (constant RPM)")
-        return lines
+            return [f"G96 S{seq.spindle_value:.0f} D{max_rpm} M3  (CSS m/min)"]
+        rpm = min(seq.spindle_value, max_rpm)
+        return [f"G97 S{rpm:.0f} M3  (constant RPM)"]
 
-    def _roughing_lines(
-        self, passes: list[RoughingPass], safe_x_r: float
+    def _feed_rates(self, seq, stock_r: float, tool) -> tuple[float, float]:
+        feed_r = self._cfg.default_feed_rough
+        feed_f = self._cfg.default_feed_finish
+        if tool:
+            cd = tool.best_data(self._recipe.stock.material_key)
+            if cd:
+                d_est   = stock_r * 2.0 * 0.75
+                rpm_est = cd.rpm_for_diameter(d_est) if d_est > 0 else 1000
+                feed_r  = round(cd.fn_rec * rpm_est, 0)
+                feed_f  = round(cd.fn_rec * rpm_est * 0.8, 0)
+        return feed_r, feed_f
+
+    def _roughing_block(
+        self, stock_r: float, nose_r: float, feed_r: float, safe_x_r: float
     ) -> list[str]:
-        lines: list[str] = []
+        rougher = ExternalRougher(
+            profile=self._profile,
+            stock_r=stock_r,
+            stock_l=self._recipe.stock.length,
+            step_down=self._cfg.step_down,
+            feed_rate=feed_r,
+            finish_allowance=self._cfg.finish_allowance,
+            nose_radius=nose_r,
+        )
+        passes = rougher.generate()
+        if not passes:
+            return []
+        lines = ["(--- roughing ---)"]
         for rp in passes:
-            d_r = rp.radius * 2.0
-            lines.append(f"G0 X{_fmt(safe_x_r * 2.0)}")  # retract between passes
+            lines.append(f"G0 X{_fmt(safe_x_r * 2.0)}")
             if rp.moves:
                 z_approach = rp.moves[0][1] + self._cfg.approach_clearance
                 lines.append(f"G0 Z{_fmt(z_approach)}")
-                lines.append(f"G0 X{_fmt(d_r)}")
+                lines.append(f"G0 X{_fmt(rp.radius * 2.0)}")
                 for r, z in rp.moves:
                     lines.append(f"G1 X{_fmt(r * 2.0)} Z{_fmt(z)} F{rp.feed_rate:.0f}")
-        return lines
-
-    def _register_message(self, extras: dict, title: str) -> int:
-        """Add a message to the catalogue; return its index."""
-        idx = len(self._messages)
-        entry = {"index": idx, "title": title}
-        entry.update(extras)
-        self._messages.append(entry)
-        return idx
-
-    def _confirm_pause(self, idx: int) -> list[str]:
-        """Return G-code lines that pause for operator confirmation."""
-        cfg = self._app_config
-        if cfg.use_confirm_mcode:
-            return [
-                f"M{cfg.confirm_mcode} P{idx}"
-                f"  (operator dialog — needs M{cfg.confirm_mcode} in USER_M_PATH)",
-            ]
-        return ["M0         (pause — press CYCLE START to continue)"]
-
-    def _operator_message_lines(self, op: "OperationRecord") -> list[str]:
-        text = self._app_config.message_text(op.extras)
-        if not text:
-            text = "Operator action required"
-        lines: list[str] = [self._app_config.format_gcode_msg(text)]
-        require = op.params.get("require_confirm", 1.0) > 0.5
-        if require:
-            idx = self._register_message(op.extras, "Потвърждение")
-            lines.extend(self._confirm_pause(idx))
-        return lines
-
-    def _manual_spindle_lines(self, op: "OperationRecord", seq_max_rpm: int) -> list[str]:
-        rpm = op.params.get("spindle_rpm", 500.0)
-        if self._machine:
-            rpm = self._machine.cap_rpm(rpm)
-        else:
-            rpm = min(rpm, seq_max_rpm)
-        text = self._app_config.message_text(op.extras)
-        if not text:
-            text = "Ръчна операция — натиснете CYCLE START след приключване"
-        idx = self._register_message(
-            op.extras or {"bg": text}, "Ръчна операция"
-        )
-        lines: list[str] = [
-            f"G97 S{rpm:.0f} M3  (manual spindle operation)",
-            self._app_config.format_gcode_msg(text),
-        ]
-        lines.extend(self._confirm_pause(idx))
-        lines.append("M5         (spindle off)")
-        return lines
-
-    def _flush_messages(self) -> None:
-        """Write collected messages to the catalogue file for M9000 to read."""
-        if not self._messages:
-            return
-        path = Path(self._app_config.messages_file)
-        try:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(
-                json.dumps(self._messages, indent=2, ensure_ascii=False),
-                encoding="utf-8",
-            )
-        except OSError:
-            pass   # non-fatal — standalone / Windows without /tmp
-
-    def _parting_lines(
-        self,
-        params: dict,
-        current_r: float,
-        feed_rate: float,
-        safe_x_r: float,
-    ) -> list[str]:
-        lines: list[str] = []
-        x_target = params.get("x_target", 0.0)
-        mode     = round(params.get("chip_break_mode", 0.0))
-        peck_d   = params.get("peck_depth", 2.0)
-        retract  = params.get("retract_amount", 0.5)
-        safe_x   = params.get("safe_x", safe_x_r * 2.0)
-        target_r = x_target / 2.0
-
-        if mode == 0:   # continuous
-            lines.append(f"G1 X{_fmt(x_target)} F{feed_rate:.0f}")
-
-        elif mode == 1:  # peck
-            r = current_r - peck_d
-            while r > target_r:
-                lines.append(f"G1 X{_fmt(r * 2.0)} F{feed_rate:.0f}")
-                lines.append(f"G1 X{_fmt((r + retract) * 2.0)} F{feed_rate * 2:.0f}")
-                r -= peck_d
-            lines.append(f"G1 X{_fmt(x_target)} F{feed_rate:.0f}")
-
-        else:  # full retract
-            r = current_r - peck_d
-            while r > target_r:
-                lines.append(f"G1 X{_fmt(r * 2.0)} F{feed_rate:.0f}")
-                lines.append(f"G0 X{_fmt(safe_x)}")
-                lines.append(f"G0 X{_fmt(r * 2.0)}")
-                r -= peck_d
-            lines.append(f"G1 X{_fmt(x_target)} F{feed_rate:.0f}")
-
         return lines

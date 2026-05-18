@@ -83,6 +83,8 @@
   - **Chip break modes** (ParamSpec `chip_break_mode` as enum choice):
     - `none` — continuous feed to full depth
     - `peck` — feed `peck_depth` mm, retract `retract_amount` mm, repeat
+<!-- [MermaidChart: bd468fc8-f9c9-4b29-a340-0f91eadf1b80] -->
+<!-- [MermaidChart: bd468fc8-f9c9-4b29-a340-0f91eadf1b80] -->
     - `full_retract` — feed `peck_depth` mm, retract to safe Z, re-enter, repeat
   - Params: `x_target` (final diameter, 0 = full cut-off), `peck_depth`, `retract_amount`, `safe_x`
   - Validation: warn if `peck_depth` > blade_width (tool data)

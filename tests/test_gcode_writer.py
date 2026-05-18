@@ -1,5 +1,9 @@
 """
 Tests for cam/gcode_writer.py and cam/finishing.py — G-code output correctness.
+
+G41/G42 controller compensation is NOT used in this project — the tool offset
+is computed explicitly via cam.profile_offset so the output works on any
+controller.  Tests here verify the explicit-offset behaviour.
 """
 
 import sys
@@ -10,48 +14,12 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 from domain.profile import LatheProfile
-from domain.profile_segments import LineSegment, ArcSegment, ArcDirection
-from cam.finishing import FinishingPass, _line_to_gcode, _arc_to_gcode
+from cam.finishing import FinishingPass
 from cam.gcode_writer import GCodeWriter, WriterConfig
 
 
 # ---------------------------------------------------------------------------
-# Finishing helpers
-# ---------------------------------------------------------------------------
-
-def test_line_segment_gcode():
-    seg = LineSegment(x0=12.5, z0=0.0, x1=12.5, z1=-30.0)
-    code = _line_to_gcode(seg, feed=120.0)
-    assert "G1" in code
-    assert "X25.000" in code
-    assert "Z-30.000" in code
-    assert "F120" in code
-
-
-def test_arc_segment_gcode_cw():
-    seg = ArcSegment(
-        x0=10.0, z0=0.0, x1=12.0, z1=-2.0,
-        cx=10.0, cz=-2.0, radius=2.0,
-        direction=ArcDirection.CW,
-    )
-    code = _arc_to_gcode(seg, feed=100.0)
-    assert code.startswith("G2")
-    assert "X24.000" in code
-    assert "I0.000" in code   # cx - x0 = 0
-
-
-def test_arc_segment_gcode_ccw():
-    seg = ArcSegment(
-        x0=10.0, z0=0.0, x1=12.0, z1=-2.0,
-        cx=10.0, cz=-2.0, radius=2.0,
-        direction=ArcDirection.CCW,
-    )
-    code = _arc_to_gcode(seg, feed=100.0)
-    assert code.startswith("G3")
-
-
-# ---------------------------------------------------------------------------
-# FinishingPass
+# FinishingPass — basic output checks
 # ---------------------------------------------------------------------------
 
 def _straight_profile() -> LatheProfile:
@@ -62,7 +30,7 @@ def _straight_profile() -> LatheProfile:
 
 def test_finishing_pass_contains_g1():
     profile = _straight_profile()
-    fin = FinishingPass(profile=profile, feed_rate=120.0, tool_id=0)
+    fin = FinishingPass(profile=profile, feed_rate=120.0)
     lines = fin.lines()
     assert any("G1" in l for l in lines)
 
@@ -74,26 +42,69 @@ def test_finishing_pass_approach_rapid():
     assert any("G0" in l for l in lines[:3]), "Expected rapid approach at the start"
 
 
-def test_finishing_pass_compensation_external():
+def test_finishing_pass_no_controller_compensation():
+    """Project uses explicit offset — G41/G42 must never appear."""
     profile = _straight_profile()
-    fin = FinishingPass(profile=profile, feed_rate=100.0, tool_id=3, internal=False)
-    lines = fin.lines()
-    assert any("G42" in l for l in lines)
-    assert any("G40" in l for l in lines)
+    for internal in (False, True):
+        fin = FinishingPass(profile=profile, feed_rate=100.0, internal=internal)
+        lines = fin.lines()
+        assert not any("G41" in l or "G42" in l for l in lines), (
+            f"G41/G42 found in finishing lines (internal={internal})"
+        )
 
 
-def test_finishing_pass_compensation_internal():
+def test_finishing_pass_nose_radius_shifts_x_outward():
+    """External finishing with nose_radius > 0 must produce larger X values."""
     profile = _straight_profile()
-    fin = FinishingPass(profile=profile, feed_rate=100.0, tool_id=3, internal=True)
-    lines = fin.lines()
-    assert any("G41" in l for l in lines)
+    nose = 0.4
+
+    fin_no_offset = FinishingPass(profile=profile, feed_rate=100.0, nose_radius=0.0)
+    fin_offset    = FinishingPass(profile=profile, feed_rate=100.0, nose_radius=nose)
+
+    def _x_values(lines):
+        xs = []
+        for l in lines:
+            if l.startswith("G1") and "X" in l:
+                for tok in l.split():
+                    if tok.startswith("X"):
+                        xs.append(float(tok[1:]))
+        return xs
+
+    xs_plain  = _x_values(fin_no_offset.lines())
+    xs_offset = _x_values(fin_offset.lines())
+
+    assert xs_plain and xs_offset, "No G1 X moves found"
+    # Every offset X should be exactly nose*2 larger
+    for xp, xo in zip(xs_plain, xs_offset):
+        assert abs(xo - xp - nose * 2) < 1e-3, (
+            f"Expected X offset of {nose*2:.3f}, got {xo - xp:.3f}"
+        )
 
 
-def test_finishing_pass_no_compensation_when_tool_id_zero():
+def test_finishing_pass_internal_shifts_x_inward():
+    """Boring pass (internal=True) must produce smaller X values than the raw profile."""
     profile = _straight_profile()
-    fin = FinishingPass(profile=profile, feed_rate=100.0, tool_id=0)
-    lines = fin.lines()
-    assert not any("G41" in l or "G42" in l for l in lines)
+    nose = 0.4
+
+    fin_no_offset = FinishingPass(profile=profile, feed_rate=100.0, nose_radius=0.0)
+    fin_internal  = FinishingPass(profile=profile, feed_rate=100.0,
+                                  nose_radius=nose, internal=True)
+
+    def _x_values(lines):
+        return [
+            float(tok[1:])
+            for l in lines if l.startswith("G1") and "X" in l
+            for tok in l.split() if tok.startswith("X")
+        ]
+
+    xs_plain    = _x_values(fin_no_offset.lines())
+    xs_internal = _x_values(fin_internal.lines())
+
+    assert xs_plain and xs_internal
+    for xp, xi in zip(xs_plain, xs_internal):
+        assert abs(xi - xp + nose * 2) < 1e-3, (
+            f"Expected inward X offset of {nose*2:.3f}, got {xp - xi:.3f}"
+        )
 
 
 # ---------------------------------------------------------------------------

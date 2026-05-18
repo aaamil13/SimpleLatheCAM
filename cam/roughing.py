@@ -238,7 +238,6 @@ class ExternalRougher:
 
         return passes
 
-
 # ---------------------------------------------------------------------------
 
 class InternalRougher:

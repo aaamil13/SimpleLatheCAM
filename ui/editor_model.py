@@ -214,6 +214,7 @@ class EditorModel(QObject):
                     continue
                 try:
                     plugin.build(profile, op.params)
-                except Exception:
-                    break   # stop at first geometry error
+                except Exception as e:
+                    self.error_occurred.emit(str(e))
+                    break
         return profile
