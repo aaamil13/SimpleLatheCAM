@@ -18,6 +18,7 @@ from typing import Optional
 
 from PySide6.QtCore import QObject, Signal
 
+from domain.material import MaterialLibrary
 from domain.plugin_loader import PrimitivePluginLoader
 from domain.primitive_base import ProfileContext
 from domain.profile import LatheProfile
@@ -33,13 +34,15 @@ class EditorModel(QObject):
 
     def __init__(
         self,
-        loader: PrimitivePluginLoader,
-        tool_library: Optional[ToolLibrary] = None,
+        loader:           PrimitivePluginLoader,
+        tool_library:     Optional[ToolLibrary]     = None,
+        material_library: Optional[MaterialLibrary] = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self._loader   = loader
-        self._tools    = tool_library or ToolLibrary.empty()
+        self._loader    = loader
+        self._tools     = tool_library or ToolLibrary.empty()
+        self._materials = material_library or MaterialLibrary()
         self._recipe   = PartRecipe.default()
         self._profile  = self._rebuild()
         self._sel_seq  = -1
@@ -72,6 +75,14 @@ class EditorModel(QObject):
     @property
     def tool_library(self) -> ToolLibrary:
         return self._tools
+
+    @tool_library.setter
+    def tool_library(self, lib: ToolLibrary) -> None:
+        self._tools = lib
+
+    @property
+    def material_library(self) -> MaterialLibrary:
+        return self._materials
 
     # ------------------------------------------------------------------
     # Selection
@@ -113,6 +124,13 @@ class EditorModel(QObject):
 
     def save_recipe(self, path) -> None:
         self._recipe.save(path)
+
+    def update_stock(self, diameter: float, length: float, material_key: str) -> None:
+        self._recipe.stock.diameter     = diameter
+        self._recipe.stock.length       = length
+        self._recipe.stock.material_key = material_key
+        self._profile = self._rebuild()
+        self.recipe_changed.emit()
 
     def add_operation(
         self,

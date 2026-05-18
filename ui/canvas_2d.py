@@ -42,6 +42,17 @@ _CURSOR_COLOR  = QColor("#FFA726")
 _AXIS_COLOR    = QColor("#37474F")
 _LIMIT_COLOR   = QColor("#EF5350")
 
+# Semi-transparent fill colour per material category
+_MATERIAL_FILL: dict[str, QColor] = {
+    "Steel":       QColor(96,  125, 139, 80),   # blue-grey
+    "Stainless":   QColor(144, 164, 174, 80),   # lighter grey
+    "Aluminium":   QColor(128, 222, 234, 80),   # cyan
+    "Brass/Copper":QColor(255, 213, 79,  80),   # amber
+    "Cast Iron":   QColor(69,  90,  100, 80),   # dark grey
+    "Titanium":    QColor(206, 147, 216, 80),   # purple
+}
+_MATERIAL_FILL_DEFAULT = QColor(96, 125, 139, 70)
+
 
 class LatheCanvas(QWidget):
 
@@ -61,6 +72,7 @@ class LatheCanvas(QWidget):
         self._pan_origin: Optional[QPoint] = None
         self._pan_ox = self._offset_x
         self._pan_oy = self._offset_y
+        self._material_category: str = "Steel"
 
     # ------------------------------------------------------------------
     # Public API
@@ -73,6 +85,10 @@ class LatheCanvas(QWidget):
 
     def set_machine(self, machine: Optional[MachineConfig]) -> None:
         self._machine = machine
+        self.update()
+
+    def set_material_category(self, category: str) -> None:
+        self._material_category = category
         self.update()
 
     # ------------------------------------------------------------------
@@ -151,17 +167,38 @@ class LatheCanvas(QWidget):
     def _draw_stock(self, p: QPainter) -> None:
         if self._profile is None:
             return
-        sr   = self._profile.stock_d / 2.0
-        sl   = self._profile.stock_l
-        tl   = self._w2s(sr, 0.0)
-        br   = self._w2s(-sr, -sl)
-        pen  = QPen(_STOCK_COLOR, 1, Qt.PenStyle.DashLine)
-        p.setPen(pen)
-        p.setBrush(Qt.BrushStyle.NoBrush)
-        p.drawRect(QRect(
+        sr = self._profile.stock_d / 2.0
+        sl = self._profile.stock_l
+        tl = self._w2s(sr,  0.0)
+        br = self._w2s(-sr, -sl)
+        rect = QRect(
             int(br.x()), int(tl.y()),
             int(tl.x() - br.x()), int(br.y() - tl.y()),
-        ))
+        )
+
+        # Semi-transparent fill coloured by material category
+        fill = _MATERIAL_FILL.get(self._material_category, _MATERIAL_FILL_DEFAULT)
+        p.fillRect(rect, fill)
+
+        # Dashed outline
+        p.setPen(QPen(_STOCK_COLOR, 1, Qt.PenStyle.DashLine))
+        p.setBrush(Qt.BrushStyle.NoBrush)
+        p.drawRect(rect)
+
+        # Chuck jaw zone (red region at the clamped end)
+        if self._machine and self._machine.chuck_jaw_depth > 0:
+            jd  = self._machine.chuck_jaw_depth
+            # Chuck is at Z = -sl; jaws extend a further jd in -Z
+            j_tl = self._w2s(sr,  -sl)
+            j_br = self._w2s(-sr, -(sl + jd))
+            jaw_rect = QRect(
+                int(j_br.x()), int(j_tl.y()),
+                int(j_tl.x() - j_br.x()), int(j_br.y() - j_tl.y()),
+            )
+            p.fillRect(jaw_rect, QColor(239, 83, 80, 60))
+            p.setPen(QPen(QColor("#EF5350"), 1, Qt.PenStyle.SolidLine))
+            p.setBrush(Qt.BrushStyle.NoBrush)
+            p.drawRect(jaw_rect)
 
     def _draw_profile(self, p: QPainter) -> None:
         if self._profile is None:

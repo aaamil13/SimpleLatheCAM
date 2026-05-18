@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (
 from cam.gcode_writer import GCodeWriter
 from domain.app_config import AppConfig
 from domain.machine import MachineConfig
+from domain.material import MaterialLibrary
 from domain.plugin_loader import PrimitivePluginLoader
 from domain.tool_library import ToolLibrary
 from ui.action_toolbar import ActionToolbar
@@ -40,23 +41,28 @@ from ui.canvas_2d import LatheCanvas
 from ui.editor_model import EditorModel
 from ui.left_sidebar import LeftSidebar
 from ui.steps_panel import StepsPanel
+from ui.tool_editor import ToolEditor
 
 
 class MainWindow(QMainWindow):
 
     def __init__(
         self,
-        loader:       PrimitivePluginLoader,
-        tool_library: Optional[ToolLibrary]  = None,
-        machine:      Optional[MachineConfig] = None,
-        app_config:   Optional[AppConfig]    = None,
+        loader:           PrimitivePluginLoader,
+        tool_library:     Optional[ToolLibrary]     = None,
+        machine:          Optional[MachineConfig]   = None,
+        app_config:       Optional[AppConfig]       = None,
+        material_library: Optional[MaterialLibrary] = None,
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self._machine     = machine
-        self._app_config  = app_config or AppConfig()
-        self._model       = EditorModel(loader, tool_library, parent=self)
-        self._recipe_path: Optional[Path] = None
+        self._machine    = machine
+        self._app_config = app_config or AppConfig()
+        self._model      = EditorModel(
+            loader, tool_library, material_library, parent=self
+        )
+        self._recipe_path:      Optional[Path] = None
+        self._tool_library_path: Optional[Path] = None
 
         self.setWindowTitle("LatheCadCam")
         self.resize(1400, 800)
@@ -123,6 +129,9 @@ class MainWindow(QMainWindow):
         fm.addSeparator()
         fm.addAction("&Изход", QApplication.quit, "Ctrl+Q")
 
+        tm = mb.addMenu("&Инструменти")
+        tm.addAction("&Библиотека с ножове…", self._open_tool_editor, "Ctrl+T")
+
         vm = mb.addMenu("&Изглед")
         vm.addAction("&Вмести изглед", self._fit_canvas, "Ctrl+0")
 
@@ -157,8 +166,14 @@ class MainWindow(QMainWindow):
         self._model.add_operation(name)
 
     def _on_recipe_changed(self) -> None:
-        self._canvas.set_profile(self._model.profile)
         profile = self._model.profile
+        self._canvas.set_profile(profile)
+
+        # Update canvas material colour
+        mat_key = self._model.recipe.stock.material_key
+        mat     = self._model.material_library.get(mat_key)
+        self._canvas.set_material_category(mat.category if mat else "Steel")
+
         self._status_cursor.setText(
             f"X: {profile.cursor_x:.2f} mm   Z: {profile.cursor_z:.2f} mm"
         )
@@ -230,6 +245,18 @@ class MainWindow(QMainWindow):
             self.statusBar().showMessage(f"G-код записан: {path}", 4000)
         except Exception as e:
             QMessageBox.critical(self, "Грешка при генериране", str(e))
+
+    def _open_tool_editor(self) -> None:
+        dlg = ToolEditor(
+            self._model.tool_library,
+            self._model.material_library,
+            save_path=self._tool_library_path,
+            parent=self,
+        )
+        dlg.exec()
+        # Refresh model with possibly-edited library
+        updated = dlg.get_library()
+        self._model.tool_library = updated
 
     def _about(self) -> None:
         QMessageBox.about(

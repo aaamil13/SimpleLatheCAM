@@ -33,6 +33,7 @@ from domain.machine import MachineConfig
 from domain.recipe import OperationRecord, ToolSequence
 from ui.editor_model import EditorModel
 from ui.operation_edit_dialog import OperationEditDialog
+from ui.stock_panel import StockPanel
 
 
 # ---------------------------------------------------------------------------
@@ -184,6 +185,9 @@ class StepsPanel(QWidget):
         self._layout.setContentsMargins(4, 4, 4, 4)
         self._layout.setSpacing(2)
         scroll.setWidget(self._inner)
+
+        # Stock configuration panel — always at the top
+        self._layout.addWidget(StockPanel(model, self._inner))
 
         model.recipe_changed.connect(self._rebuild)
         model.selection_changed.connect(self._highlight)

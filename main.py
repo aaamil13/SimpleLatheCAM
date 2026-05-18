@@ -22,6 +22,7 @@ if str(ROOT) not in sys.path:
 
 from domain.app_config import AppConfig
 from domain.machine import MachineConfig
+from domain.material import MaterialLibrary
 from domain.plugin_loader import PrimitivePluginLoader
 from domain.tool_library import ToolLibrary
 from ui.main_window import MainWindow
@@ -66,18 +67,31 @@ def _load_app_config() -> AppConfig:
     return AppConfig.default()
 
 
+def _load_materials() -> MaterialLibrary:
+    lib  = MaterialLibrary()
+    path = ROOT / "data" / "materials" / "default.json"
+    if path.exists():
+        try:
+            lib.load_file(path)
+        except Exception as e:
+            print(f"[WARN] Materials load failed: {e}", file=sys.stderr)
+    return lib
+
+
 def main() -> int:
     app = QApplication(sys.argv)
     app.setApplicationName("LatheCadCam")
     app.setStyle("Fusion")
 
-    loader     = _load_plugins()
-    tools      = _load_tools()
-    machine    = _load_machine()
-    app_config = _load_app_config()
+    loader    = _load_plugins()
+    tools     = _load_tools()
+    machine   = _load_machine()
+    app_cfg   = _load_app_config()
+    materials = _load_materials()
 
     win = MainWindow(
-        loader=loader, tool_library=tools, machine=machine, app_config=app_config
+        loader=loader, tool_library=tools, machine=machine,
+        app_config=app_cfg, material_library=materials,
     )
 
     # Optional: load recipe from command-line argument
