@@ -137,9 +137,9 @@ class GCodeWriter:
             x_home_r  = sp.x_home
             z_home    = sp.z_home
 
-        for seq in self._recipe.tool_sequences:
+        for si, seq in enumerate(self._recipe.tool_sequences):
             lines.extend(
-                self._sequence_block(seq, stock_r, safe_x_r, safe_z_tc,
+                self._sequence_block(si, seq, stock_r, safe_x_r, safe_z_tc,
                                      x_tc_r, x_home_r, z_home)
             )
             lines.append("")
@@ -153,7 +153,7 @@ class GCodeWriter:
         return lines
 
     def _sequence_block(
-        self, seq, stock_r, safe_x_r, safe_z_tc, x_tc_r, x_home_r, z_home
+        self, si: int, seq, stock_r, safe_x_r, safe_z_tc, x_tc_r, x_home_r, z_home
     ) -> list[str]:
         lines: list[str] = []
         tool   = self._tools.get_by_id(seq.tool_id)
@@ -180,7 +180,7 @@ class GCodeWriter:
 
         feed_r, feed_f = self._feed_rates(seq, stock_r, tool)
 
-        _SKIP = {"parting", "rapid_to", "operator_message", "manual_spindle"}
+        _SKIP = {"parting", "rapid_to", "operator_message", "manual_spindle", "threading"}
         has_machining = any(
             op.enabled for op in seq.operations if op.primitive_name not in _SKIP
         )
@@ -212,6 +212,11 @@ class GCodeWriter:
                                   feed_r, safe_x_r)
                 )
                 break
+
+        for oi, op in enumerate(seq.operations):
+            if op.enabled and op.primitive_name == "threading":
+                lines.append("(--- threading ---)")
+                lines.extend(self._threading_block(op, (si, oi), safe_x_r))
 
         if seq.coolant_on:
             lines.append("M9")
@@ -264,3 +269,31 @@ class GCodeWriter:
                 for r, z in rp.moves:
                     lines.append(f"G1 X{_fmt(r * 2.0)} Z{_fmt(z)} F{rp.feed_rate:.0f}")
         return lines
+
+    def _threading_block(
+        self, op, tag: tuple[int, int], safe_x_r: float
+    ) -> list[str]:
+        p        = op.params
+        pitch    = p["pitch"]
+        depth    = p["depth"] or 0.6495 * pitch
+        first    = p["first_pass"]
+        spring   = int(p.get("spring_passes", 1))
+        angle    = p.get("infeed_angle", 29.5)
+        internal = (op.direction == ToolDirection.INTERNAL)
+
+        segs = [s for s in self._profile.segments() if s.tag == tag]
+        if not segs:
+            return [f"(threading: no profile segments for tag {tag})"]
+
+        z_start  = segs[0].points()[0][1]
+        z_end    = segs[-1].points()[-1][1]
+        thread_r = segs[0].points()[0][0]
+        x_start  = (thread_r - depth) * 2.0 if internal else thread_r * 2.0
+
+        return [
+            f"G0 X{_fmt(safe_x_r * 2.0)} Z{_fmt(z_start + 2.0 * pitch)}",
+            f"G0 X{_fmt(x_start)}",
+            (f"G76 P{pitch:.4f} Z{_fmt(z_end)} I0 "
+             f"J{_fmt(first)} K{_fmt(depth)} Q{angle:.1f} H{spring}"),
+            f"G0 X{_fmt(safe_x_r * 2.0)}",
+        ]

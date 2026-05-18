@@ -15,7 +15,10 @@
       "Bash(.venv/Scripts/python -c \"import pyclipper; import PySide6; print\\('pyclipper OK'\\); print\\('PySide6 OK'\\)\")",
       "Bash(.venv/Scripts/python -m pytest tests/ -q)",
       "Bash(.venv\\\\Scripts\\\\python.exe -m pytest tests/test_gcode_writer.py tests/test_roughing.py -v)",
-      "Read(//d/Dev/EMC2/LatheCadCam/plugins/primitives/**)"
+      "Read(//d/Dev/EMC2/LatheCadCam/plugins/primitives/**)",
+      "Bash(Get-Content \"d:\\\\Dev\\\\EMC2\\\\LatheCadCam\\\\cam\\\\gcode_writer.py\")",
+      "Bash(Measure-Object -Line)",
+      "PowerShell(\\(Get-Content \"d:\\\\Dev\\\\EMC2\\\\LatheCadCam\\\\cam\\\\gcode_writer.py\" | Measure-Object -Line\\).Lines)"
     ]
   }
 }
