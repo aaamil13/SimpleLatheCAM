@@ -32,6 +32,7 @@ from domain.app_config import AppConfig
 from domain.machine import MachineConfig
 from domain.recipe import OperationRecord, ToolSequence
 from ui.editor_model import EditorModel
+from ui.mini_canvas import MiniProfileView
 from ui.operation_edit_dialog import OperationEditDialog
 from ui.stock_panel import StockPanel
 
@@ -65,8 +66,11 @@ class StepCard(QFrame):
         self.setObjectName("StepCard")
         self._update_style(False)
 
-        row = QHBoxLayout(self)
-        row.setContentsMargins(4, 3, 4, 3)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(4, 3, 4, 2)
+        outer.setSpacing(2)
+
+        row = QHBoxLayout()
         row.setSpacing(4)
 
         self._check = QCheckBox()
@@ -97,6 +101,11 @@ class StepCard(QFrame):
         del_btn.setFixedSize(24, 24)
         del_btn.clicked.connect(self._delete)
         row.addWidget(del_btn)
+
+        outer.addLayout(row)
+        self._mini = MiniProfileView(self)
+        self._mini.set_profile(model.get_profile_up_to(seq_idx, op_idx))
+        outer.addWidget(self._mini)
 
     # ------------------------------------------------------------------
 
@@ -186,8 +195,8 @@ class StepsPanel(QWidget):
         self._layout.setSpacing(2)
         scroll.setWidget(self._inner)
 
-        # Stock configuration panel — always at the top
-        self._layout.addWidget(StockPanel(model, self._inner))
+        # Stock panel is permanent — kept across rebuilds
+        self._stock_panel = StockPanel(model, self._inner)
 
         model.recipe_changed.connect(self._rebuild)
         model.selection_changed.connect(self._highlight)
@@ -199,9 +208,11 @@ class StepsPanel(QWidget):
         self._cards.clear()
         while self._layout.count():
             item = self._layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
+            w = item.widget()
+            if w and w is not self._stock_panel:
+                w.deleteLater()
 
+        self._layout.addWidget(self._stock_panel)
         for si, seq in enumerate(self._model.recipe.tool_sequences):
             self._layout.addWidget(_seq_header(seq))
             for oi, op in enumerate(seq.operations):

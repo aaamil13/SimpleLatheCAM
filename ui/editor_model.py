@@ -244,6 +244,30 @@ class EditorModel(QObject):
         self._recipe.tool_sequences[seq_idx].operations.insert(op_idx, op)
         self._mutated(seq_idx, op_idx)
 
+    def get_profile_up_to(self, target_seq: int, target_op: int) -> LatheProfile:
+        """
+        Partial rebuild — builds every enabled operation up to and including
+        the operation at position (target_seq, target_op) in the recipe's
+        operations list (all ops, not just enabled ones).
+        """
+        stock   = self._recipe.stock
+        profile = LatheProfile(stock_d=stock.diameter, stock_l=stock.length)
+        for si, seq in enumerate(self._recipe.tool_sequences):
+            ei = 0  # enabled-operation counter within this sequence
+            for oi, op in enumerate(seq.operations):
+                if op.enabled:
+                    profile.active_tag = (si, ei)
+                    plugin = self._loader.get(op.primitive_name)
+                    if plugin is not None:
+                        try:
+                            plugin.build(profile, op.params)
+                        except Exception:
+                            pass
+                    ei += 1
+                if si == target_seq and oi == target_op:
+                    return profile
+        return profile
+
     def _rebuild(self) -> LatheProfile:
         stock = self._recipe.stock
         profile = LatheProfile(stock_d=stock.diameter, stock_l=stock.length)
